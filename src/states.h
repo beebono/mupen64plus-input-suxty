@@ -43,9 +43,10 @@
  *   - loading it is then done by path (states_pj_path()), so that a .pj newer than an existing .st really wins,
  *   - saving writes the .st, which is then the newest (the .pj file is left alone), and Delete removes the shown file only.
  *
- * The dedicated auto-save slot is suxty's own: "<name>.auto.st" next to the numbered slots, saved
- * through a "<file>.tmp" and renamed on success, so that a failed or interrupted write never
- * destroys the previous auto-save.
+ * The dedicated auto-save slot is suxty's own: "<name>.auto.st" next to the numbered slots.  It is written only by
+ * Quit with [states] autosave_on_quit on, never by a numbered-slot save, and suxty itself never loads it: resume from
+ * it with the front-end (ui-console: --savestate <dir>/<name>.auto.st).  Before it is rewritten the old file is renamed to
+ * "<name>.auto.st.prev" and checked at the next game start (autosave.h); Delete removes the backups with it.
  */
 
 #ifndef STATES_H
@@ -76,7 +77,7 @@ void states_stat(int slot, state_info *info);
 int  states_pj_path(int slot, char *out, size_t size);
 /* Where a Project64 state of this slot is written by the debug hook (uncompressed or zip). */
 int  states_pj_new_path(int slot, int zip, char *out, size_t size);
-int  states_delete(int slot);                                /* 0 on success (or already absent) */
+int  states_delete(int slot);                                /* 0 on success (or already absent); the auto slot's backups go too */
 
 /* Checks that a save can be written to the state directory.  The core leaves its state-file lock
  * held when a write fails, which hangs the next load, so we refuse to start a write that is

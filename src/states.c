@@ -26,6 +26,7 @@
 #include <sys/statvfs.h>
 #include <unistd.h>
 
+#include "autosave.h"
 #include "core_interface.h"
 #include "main.h"
 #include "m64p_types.h"
@@ -58,17 +59,6 @@ void states_init(const char *header_name, const char *goodname, const char *md5)
     snprintf(l_goodname, sizeof(l_goodname), "%s", goodname ? goodname : "");
     snprintf(l_md5, sizeof(l_md5), "%s", md5 ? md5 : "");
     l_ready = 1;
-
-    /* a previous run that was killed in the middle of an auto-save leaves its temporary file behind */
-    {
-        char path[PATH_MAX + 8];
-        if (states_slot_path(STATES_AUTO_SLOT, path, PATH_MAX) == 0)
-        {
-            strcat(path, ".tmp");
-            if (unlink(path) == 0)
-                DebugMessage(M64MSG_INFO, "removed a stale partial auto-save");
-        }
-    }
 }
 
 static void sanitize(char *s)
@@ -232,6 +222,19 @@ int states_delete(int slot)
     char path[PATH_MAX];
     state_info si;
 
+    if (slot == STATES_AUTO_SLOT)
+    {
+        /* the auto-save and every backup of it (a deleted auto-save must not come back at the next start) */
+        if (states_slot_path(slot, path, sizeof(path)) != 0)
+            return -1;
+        if (autosave_remove_all(path) != 0)
+        {
+            DebugMessage(M64MSG_WARNING, "couldn't delete '%s' and its backups: %s", path, strerror(errno));
+            return -1;
+        }
+        DebugMessage(M64MSG_INFO, "deleted state file '%s' and its backups", path);
+        return 0;
+    }
     states_stat(slot, &si);
     if (si.pj64 ? states_pj_path(slot, path, sizeof(path)) != 0 : states_slot_path(slot, path, sizeof(path)) != 0)
         return si.exists ? -1 : 0;

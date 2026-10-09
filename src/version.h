@@ -26,12 +26,9 @@
 #if !defined(VERSION_H)
 #define VERSION_H
 
-#define SUXTY_NAME         "mupen64plus-ui-suxty"
-#define SUXTY_VERSION      0x000100   /* M1 */
+#define SUXTY_NAME         "mupen64plus-input-suxty"
+#define SUXTY_VERSION      0x000200
 #define CORE_API_VERSION   0x020001
-#define CONFIG_API_VERSION 0x020301
-
-#define MINIMUM_CORE_VERSION   0x016300
 
 #define VERSION_PRINTF_SPLIT(x) (((x) >> 16) & 0xffff), (((x) >> 8) & 0xff), ((x) & 0xff)
 

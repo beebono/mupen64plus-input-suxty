@@ -36,9 +36,7 @@
 #include "m64p_types.h"
 
 m64p_error video_install(void);                 /* CoreOverrideVidExt with our function table */
-#ifdef SUXTY_PLUGIN
 void video_uninstall(void);                     /* plugin shutdown: deactivate the override, close a window left open */
-#endif
 
 /* used by session.c */
 int  video_ui_available(void);                  /* overlay context created and usable */

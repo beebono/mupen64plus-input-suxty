@@ -1,7 +1,6 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *   mupen64plus-ui-suxty - osal_dynamiclib.h                            *
+ *   mupen64plus-ui-suxty - audio.c
  *   Mupen64Plus homepage: https://mupen64plus.org/                        *
- *   Copyright (C) 2009 Richard Goedeken                                   *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -19,16 +18,36 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#if !defined(OSAL_DYNAMICLIB_H)
-#define OSAL_DYNAMICLIB_H
-
+#include "audio.h"
+#include "cfg.h"
+#include "core_interface.h"
+#include "main.h"
 #include "m64p_types.h"
 
-m64p_error osal_dynlib_open(m64p_dynlib_handle *pLibHandle, const char *pccLibraryPath);
+int audio_volume_now(void)
+{
+    int v = -1;
+    if ((*CoreDoCommand)(M64CMD_CORE_STATE_QUERY, M64CORE_AUDIO_VOLUME, &v) != M64ERR_SUCCESS)
+        return -1;
+    return v;
+}
 
-void *     osal_dynlib_getproc(m64p_dynlib_handle LibHandle, const char *pccProcedureName);
+static int l_vol_initial = -2;       /* the volume the audio plugin started with (-2: not asked yet) */
 
-m64p_error osal_dynlib_close(m64p_dynlib_handle LibHandle);
-
-#endif /* #define OSAL_DYNAMICLIB_H */
-
+void audio_apply_volume(void)
+{
+    int v = cfg_get_int("audio", "volume", -1);
+    if (l_vol_initial == -2)
+        l_vol_initial = audio_volume_now();
+    if (v < 0)
+    {
+        /* "plugin default": go back to what the plugin started with (after a reset in the menu) */
+        v = l_vol_initial;
+        if (v < 0 || v == audio_volume_now())
+            return;
+    }
+    if (v > 100)
+        v = 100;
+    if ((*CoreDoCommand)(M64CMD_CORE_STATE_SET, M64CORE_AUDIO_VOLUME, &v) == M64ERR_SUCCESS)
+        DebugMessage(M64MSG_INFO, "audio volume set to %d%% (the audio plugin reports %d%%)", v, audio_volume_now());
+}

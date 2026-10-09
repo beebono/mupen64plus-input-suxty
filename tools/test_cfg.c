@@ -23,6 +23,7 @@ void DebugMessage(int level, const char *message, ...) { (void) level; (void) me
 void toast_set_enabled(int e) { (void) e; }
 void toast_set_duration_ms(int ms) { (void) ms; }
 void inputfilter_bypass(int on) { (void) on; }
+void inputfilter_after_update(void) { }
 void inputfilter_configure(int block, uint32_t hot, uint32_t all) { (void) block; (void) hot; (void) all; }
 
 static void ini_roundtrip_tests(void)
@@ -61,7 +62,9 @@ int main(void)
     }
     CHECK(cfg_init(dir) == 0);
     CHECK(!cfg_game_available());
-    CHECK(g_cfg.ff_speed == 300 && g_cfg.autosave_on_quit == 1);
+    CHECK(g_cfg.ff_speed == 300 && g_cfg.autosave_on_quit == 0);        /* auto-save on quit is opt-in */
+    cfg_set_bool("states", "autosave_on_quit", 1);
+    CHECK(g_cfg.autosave_on_quit == 1);
 
     /* no game layer yet: writes in GAME scope fall back to the global layer */
     cfg_set_scope(CFG_SCOPE_GAME);
@@ -125,6 +128,41 @@ int main(void)
     CHECK(cfg_load_game("xyz") != 0 && !cfg_game_available());
 
     cfg_shutdown();
+
+    /* an suxty.cfg and a game file from the front-end build: removed keys are dropped, the rest is kept, no error */
+    {
+        char dir2[] = "/tmp/suxty-test-cfg2-XXXXXX", gpath[600];
+        FILE *f;
+        if (mkdtemp(dir2) == NULL)
+            return 2;
+        snprintf(path, sizeof(path), "%s/suxty", dir2);
+        osal_mkdir_p(path);
+        snprintf(path, sizeof(path), "%s/suxty/suxty.cfg", dir2);
+        f = fopen(path, "w");
+        fputs("[general]\nversion = 1\n[input]\nremap_input = false\nswap_ab = true\n[states]\nautosave_on_quit = true\n"
+              "[hotkeys]\nfast_forward_speed = 250\nsome_future_key = 1\n[UI-Suxty]\nx = 1\n", f);
+        fclose(f);
+        snprintf(gpath, sizeof(gpath), "%s/suxty/games", dir2);
+        osal_mkdir_p(gpath);
+        snprintf(gpath, sizeof(gpath), "%s/suxty/games/753437d0d8ada1d12f3f9cf0f0a5171f.cfg", dir2);
+        f = fopen(gpath, "w");
+        fputs("[plugins]\nvideo = mupen64plus-video-GLideN64.so\n[cfg:Video-Foir]\nThreads = 3\n[cfg:Core]\nR4300Emulator = 1\n"
+              "[hotkeys]\nquick_save = hotkey+x\n[audio]\nvolume = 60\n", f);
+        fclose(f);
+        CHECK(cfg_init(dir2) == 0);
+        CHECK(!ini_has(g_cfg.ini, "input", "remap_input") && !ini_has_section(g_cfg.ini, "UI-Suxty"));
+        CHECK(g_cfg.swap_ab == 1 && g_cfg.ff_speed == 250 && ini_get_int(g_cfg.ini, "general", "version", 0) == CFG_VERSION);
+        CHECK(g_cfg.autosave_on_quit == 0);                              /* an old "true" meant something else: back to the new default */
+        CHECK(ini_has(g_cfg.ini, "hotkeys", "some_future_key"));       /* unknown keys are kept */
+        CHECK(cfg_load_game(md5) == 0);
+        CHECK(!ini_has_section(g_cfg.game, "plugins") && ini_count_prefix(g_cfg.game, "cfg:") == 0);
+        CHECK(cfg_game_override_count() == 2 && cfg_get_int("audio", "volume", 0) == 60 && g_cfg.hk_quick_save != 0);
+        CHECK(cfg_save() == 0);
+        cfg_shutdown();
+        /* what was written no longer has them */
+        CHECK(cfg_init(dir2) == 0 && cfg_load_game(md5) == 0 && cfg_game_override_count() == 2 && !ini_has(g_cfg.ini, "input", "remap_input"));
+        cfg_shutdown();
+    }
     printf("%d checks, %d failed\n", l_checks, l_fail);
     return l_fail ? 1 : 0;
 }

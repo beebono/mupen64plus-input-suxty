@@ -1,7 +1,6 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *   mupen64plus-ui-suxty - plugin.h                                     *
+ *   mupen64plus-ui-suxty - audio.h
  *   Mupen64Plus homepage: https://mupen64plus.org/                        *
- *   Copyright (C) 2009 Richard42                                          *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -19,34 +18,13 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#if !defined(PLUGIN_H)
-#define PLUGIN_H
+/* The one audio option suxty offers: the core's own volume (M64CORE_AUDIO_VOLUME), which every audio plugin implements.
+ * [audio] volume = 0-100 in suxty.cfg or the game file; absent means whatever the audio plugin starts with. */
 
-#include <limits.h>
+#ifndef AUDIO_H
+#define AUDIO_H
 
-#include "m64p_types.h"
-#include "osal_preproc.h"
+int  audio_volume_now(void);          /* 0-100, -1 if the core / audio plugin can't tell (the menu then hides the row) */
+void audio_apply_volume(void);        /* the configured volume (this game's, else the global one) -> the core */
 
-extern m64p_error PluginSearchLoad(m64p_handle ConfigUI);
-extern m64p_error PluginUnload(void);
-
-extern const char *g_PluginDir;        // directory to search for plugins
-extern const char *g_GfxPlugin;        // graphics plugin specified at commandline (if any)
-extern const char *g_AudioPlugin;      // audio plugin specified at commandline (if any)
-extern const char *g_InputPlugin;      // input plugin specified at commandline (if any)
-extern const char *g_RspPlugin;        // rsp plugin specified at commandline (if any)
-
-typedef struct {
-  m64p_plugin_type    type;
-  char                name[8];
-  m64p_dynlib_handle  handle;
-  char                filename[PATH_MAX];
-  const char         *libname;
-  int                 libversion;
-  } plugin_map_node;
-
-extern plugin_map_node g_PluginMap[4];
-
-#endif /* #define PLUGIN_H */
-
-
+#endif /* AUDIO_H */

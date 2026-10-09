@@ -19,13 +19,10 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-/* Gamepad abstraction for the suxty menu.
+/* Gamepad abstraction for the suxty menu and the N64 controllers.
  *
- * suxty only ever *polls* controller state (SDL_GameControllerGetButton etc.).  It
- * never consumes the SDL event queue for controller input, so it cannot steal
- * events from the core's event filter or from the input plugin, and the input
- * plugin's own SDL_JoystickOpen() of the same device is harmless (SDL
- * reference-counts opens).
+ * suxty only ever *polls* controller state (SDL_GameControllerGetButton etc.).  It never consumes the SDL event
+ * queue for controller input, so it cannot steal events from the core's event filter.
  */
 
 #ifndef PAD_H
@@ -55,13 +52,11 @@ void pad_shutdown(void);
 /* Bitmask of currently held logical buttons, all controllers merged.  Also folds in
  * the left stick as D-pad (beyond the nav deadzone) and any injected test buttons. */
 uint32_t pad_poll(void);
-#ifdef SUXTY_PLUGIN
-void     pad_refresh(void);     /* SDL_JoystickUpdate + input filter / virtual N64 pad update, no button masks */
-#endif
+void     pad_refresh(void);     /* SDL_JoystickUpdate + input filter / N64 player update, no button masks (GetKeys) */
 
 /* The physical SDL_Joystick control behind a logical button, as the SDL game controller mapping (or the
  * generic fallback layout) defines it.  inputfilter.c uses this to hide exactly those controls from the
- * input plugin, and the remap UI (padmap.c) uses it to build the preset layouts. */
+ * game, and the remap UI (padmap.c) uses it to build the preset layouts. */
 typedef struct {
     enum { PAD_BIND_NONE = 0, PAD_BIND_BUTTON, PAD_BIND_AXIS, PAD_BIND_HAT } type;
     int index;        /* button / axis / hat index */
@@ -71,7 +66,7 @@ typedef struct {
 /* Bindings of the pad that owns `js`, PAD_NUM entries, or NULL if suxty does not know that joystick. */
 const pad_bind *pad_bindings_for(SDL_Joystick *js);
 
-/* One physical control of an SDL joystick, in the raw domain the input plugin sees (button / hat / axis
+/* One physical control of an SDL joystick, in the raw domain of SDL joysticks (button / hat / axis
  * indices).  Used by the remap layer and by the capture prompt.  An axis source is a half axis: `dir` is the
  * direction (+1 / -1) in which it counts as pressed, measured from the axis' rest value (so a trigger that
  * rests at -32768 is "axis N, +"). */
@@ -95,8 +90,8 @@ typedef struct {
 int            pad_count(void);                         /* connected pads suxty knows */
 int            pad_generation(void);                    /* changes when the list was rebuilt (hot-plug): indices are then stale */
 const char    *pad_name(int pad);
-SDL_Joystick  *pad_joystick(int pad);                   /* the shared SDL_Joystick the input plugin also opens */
-int            pad_device_index(int pad);               /* SDL device index (what the input plugin's `device` means) */
+SDL_Joystick  *pad_joystick(int pad);                   /* the SDL_Joystick behind a pad */
+int            pad_device_index(int pad);               /* SDL device index */
 int            pad_layout_get(int pad, pad_layout *out);   /* 0 ok */
 /* Which logical button (pad_button) is this physical control?  -1 if none.  Axes match triggers only. */
 int            pad_logical_for(int pad, const padsrc *s);

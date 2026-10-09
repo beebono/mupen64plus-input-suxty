@@ -22,7 +22,7 @@
 /* suxty's own configuration: <configdir>/suxty/suxty.cfg, and the per-game layer on top of it.
  *
  * Layout (follows the Mupen64Plus config directory, README "Configuration layout"):
- *   <configdir>/mupen64plus.cfg      core + plugin settings (owned by the core; only ever holds GLOBAL values)
+ *   <configdir>/mupen64plus.cfg      core + plugin settings (owned by the core and the front-end; suxty never writes it)
  *   <configdir>/suxty/suxty.cfg      menu, hotkeys, auto-save options (the global layer of this file)
  *   <configdir>/suxty/games/<md5>.cfg  per-game overrides (the game layer), keyed by the ROM's MD5
  *
@@ -30,15 +30,15 @@
  * (cfg_get*()).  The game file uses the same sections and keys as suxty.cfg:
  *   [menu] [input] [hotkeys] [states] [audio]   suxty options (a few, listed in cfg_key_overridable(), are global only)
  *   [players], [pad:<name>]                      controller choice and mappings (remap.c, padmap_load()'s overlay)
- *   [cfg:<core config section>]                  core/plugin parameters ([cfg:Video-Foir] FrameSkip = auto); applied
- *                                                to the core's in-memory config at launch, see profile.h
- *   [plugins]  video / audio / input / rsp       which plugin library to use for this game (hand-edited)
+ *   [foir]                                       foir video options by their [Video-Foir] names (foir_if.h)
  * "Reset to global" is simply deleting the game entry; "Save for this game" is writing it.  The menu has an edit
  * scope (g_cfg.scope): writes go to the game layer when it is GAME, to the global layer otherwise.
  */
 
 #ifndef CFG_H
 #define CFG_H
+
+#define CFG_VERSION 2        /* [general] version: 2 = input plugin (autosave_on_quit became opt-in) */
 
 #include <stddef.h>
 #include <stdint.h>

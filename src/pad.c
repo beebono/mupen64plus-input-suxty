@@ -37,7 +37,7 @@
 typedef struct {
     SDL_GameController *gc;
     SDL_Joystick       *js;        /* only for pads without a controller mapping */
-    SDL_Joystick       *joy;       /* the underlying joystick (either of the above), what the input plugin also opens */
+    SDL_Joystick       *joy;       /* the underlying joystick (either of the above), the SDL device the game input is read from */
     SDL_JoystickID      id;
     int                 devidx;    /* SDL device index at the time it was opened */
     pad_layout          lay;       /* lay.b[] are the logical-button bindings */
@@ -162,8 +162,7 @@ static void fill_bindings(pad_dev *p)
     {
         p->joy = SDL_GameControllerGetJoystick(p->gc);
         {
-            /* the joystick's own name, which is what the input plugin's config calls it (the controller mapping's
-             * name is shared by every pad with the same GUID) */
+            /* the joystick's own name (the controller mapping's name is shared by every pad with the same GUID) */
             const char *nm = SDL_JoystickName(p->joy);
             snprintf(L->name, sizeof(L->name), "%s", nm ? nm : "Gamepad");
         }
@@ -369,9 +368,6 @@ static uint32_t read_all(uint32_t *digital, uint32_t *per_pad)
         memset(per_pad, 0, sizeof(uint32_t) * (MAX_PADS + 1));
     if (l_inited)
     {
-        /* suxty always sees the real controller state: SDL's own game controller code may call the (overridden)
-         * SDL_JoystickGetButton() internally */
-        inputfilter_bypass(1);
         if (SDL_NumJoysticks() != l_numjoy_seen)     /* hot-plug */
             rescan();
         for (i = 0; i < l_npads; i++)
@@ -382,7 +378,6 @@ static uint32_t read_all(uint32_t *digital, uint32_t *per_pad)
             if (per_pad != NULL)
                 per_pad[i] = pd;
         }
-        inputfilter_bypass(0);
     }
     {
         uint32_t k = l_keyboard ? poll_keyboard() : 0;
@@ -450,18 +445,21 @@ int pad_logical_for(int pad, const padsrc *s)
     return -1;
 }
 
+/* SDL_JoystickUpdate, then advance the hotkey filter and the N64 players (inputfilter_after_update) */
+void pad_refresh(void)
+{
+    if (l_inited)
+    {
+        SDL_JoystickUpdate();
+        inputfilter_after_update();
+    }
+}
+
 uint32_t pad_poll(void)
 {
     uint32_t m;
 
-    /* goes through inputfilter.c's SDL_JoystickUpdate() override, which keeps the game-input filter current */
-    if (l_inited)
-    {
-        SDL_JoystickUpdate();
-#ifdef SUXTY_PLUGIN
-        inputfilter_after_update();
-#endif
-    }
+    pad_refresh();
     m = read_all(NULL, NULL);
     if (l_swap_ab)
         m = pad_swap_ab_mask(m);
@@ -491,7 +489,6 @@ void pad_capture_begin(int pad)
     l_cap.pad = pad;
     if (!l_inited)
         return;
-    inputfilter_bypass(1);
     for (i = 0; i < l_npads; i++)
     {
         SDL_Joystick *j = l_pads[i].joy;
@@ -507,7 +504,6 @@ void pad_capture_begin(int pad)
         for (k = 0; k < na && k < CAP_MAXAX; k++)
             l_cap.base[i][k] = SDL_JoystickGetAxis(j, k);
     }
-    inputfilter_bypass(0);
 }
 
 void pad_capture_inject(const padsrc *s)
@@ -530,7 +526,6 @@ int pad_capture_poll(padsrc *out, int *pad_out)
     }
     if (!l_inited)
         return 0;
-    inputfilter_bypass(1);
     for (i = 0; i < l_npads && !found; i++)
     {
         SDL_Joystick *j = l_pads[i].joy;
@@ -574,7 +569,6 @@ int pad_capture_poll(padsrc *out, int *pad_out)
         if (found && pad_out != NULL)
             *pad_out = i;
     }
-    inputfilter_bypass(0);
     return found;
 }
 
@@ -647,16 +641,3 @@ void pad_tracker_update(pad_tracker *t, uint32_t held, uint32_t now_ms)
     t->held = held;
     t->prev = held;
 }
-
-#ifdef SUXTY_PLUGIN
-/* GetKeys() on the emulation thread: refresh SDL's joystick state and advance the hotkey filter / virtual N64 pads
- * (inputfilter_after_update).  Unlike pad_poll() it reads no button masks. */
-void pad_refresh(void)
-{
-    if (l_inited)
-    {
-        SDL_JoystickUpdate();
-        inputfilter_after_update();
-    }
-}
-#endif

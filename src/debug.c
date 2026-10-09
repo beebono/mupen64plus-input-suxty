@@ -32,7 +32,7 @@
 #define MAX_CMDS 512
 
 typedef struct {
-    enum { C_WAIT, C_MENU, C_SHOT, C_QUIT, C_KILL, C_STAT, C_RESTART, C_PJSAVE, C_BUTTON, C_HOLD, C_CAP } kind;
+    enum { C_WAIT, C_MENU, C_SHOT, C_QUIT, C_KILL, C_STAT, C_PJSAVE, C_BUTTON, C_HOLD, C_CAP } kind;
     int arg;
     uint32_t mask;
     padsrc src;
@@ -78,8 +78,6 @@ static void parse(const char *script)
             add(C_KILL, 0, 0);
         else if (strcmp(tok, "stat") == 0)
             add(C_STAT, 0, 0);
-        else if (strcmp(tok, "restart") == 0)
-            add(C_RESTART, 0, 0);
         else if (strncmp(tok, "pjsave:", 7) == 0)
             add(C_PJSAVE, atoi(tok + 7), 0);
         else if (strncmp(tok, "pjzip:", 6) == 0)
@@ -135,10 +133,6 @@ void dbg_configure(const char *script, const char *shot_prefix, int open_menu_af
         parse(script);
 }
 
-static int l_job_delay;
-void dbg_set_job_delay(int ms) { l_job_delay = ms; }
-int  dbg_job_delay(void) { return l_job_delay; }
-
 int dbg_active(void)
 {
     return l_pos < l_ncmds;
@@ -177,7 +171,6 @@ void dbg_tick(dbg_tick_t *out)
             case C_QUIT:   out->quit = 1; break;
             case C_KILL:   out->kill = 1; break;
             case C_STAT:   out->stat = 1; break;
-            case C_RESTART: out->restart = 1; break;
             case C_PJSAVE: out->pj_slot = c->arg; out->pj_zip = (int) c->mask; break;
             case C_CAP:    out->cap = 1; out->capsrc = c->src; break;
             case C_BUTTON: out->buttons = c->mask; l_release_tick = 1; break;

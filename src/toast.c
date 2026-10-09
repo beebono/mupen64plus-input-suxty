@@ -104,8 +104,26 @@ void toast_draw(int w, int h)
         }
         else
         {
-            int tw = ugl_text_width(scale, l_text);
-            int bw = tw + 4 * pad, bh = FONT_GLYPH_H * scale + 2 * pad;
+            /* '\n' starts another line (long notices); the lines are left-aligned in one box */
+            char lines[3][96];
+            int nl = 0, tw = 0, i, lh = FONT_GLYPH_H * scale;
+            const char *p = l_text;
+            while (nl < 3)
+            {
+                const char *e = strchr(p, '\n');
+                size_t n = e != NULL ? (size_t) (e - p) : strlen(p);
+                if (n >= sizeof(lines[0]))
+                    n = sizeof(lines[0]) - 1;
+                memcpy(lines[nl], p, n);
+                lines[nl][n] = 0;
+                if (ugl_text_width(scale, lines[nl]) > tw)
+                    tw = ugl_text_width(scale, lines[nl]);
+                nl++;
+                if (e == NULL)
+                    break;
+                p = e + 1;
+            }
+            int bw = tw + 4 * pad, bh = nl * lh + (nl - 1) * pad + 2 * pad;
             int x = (w - bw) / 2, y = margin;
             uint32_t edge, fg;
             int alpha = rem < FADE_MS ? rem * 255 / FADE_MS : 255;
@@ -116,7 +134,8 @@ void toast_draw(int w, int h)
                 default:          edge = UGL_RGBA(70, 130, 230, alpha); fg = UGL_RGBA(240, 244, 255, alpha); break;
             }
             box(x, y, bw, bh, border, edge, (COL_BG & ~0xffu) | (uint32_t) (225 * alpha / 255));
-            ugl_text(x + 2 * pad, y + pad, scale, fg, l_text);
+            for (i = 0; i < nl; i++)
+                ugl_text(x + 2 * pad, y + pad + i * (lh + pad), scale, fg, lines[i]);
         }
     }
     if (l_enabled && l_badge[0] != 0)

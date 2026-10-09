@@ -34,7 +34,7 @@
 suxty_cfg_t g_cfg;
 
 static const char *l_header =
-    "# mupen64plus-ui-suxty configuration\n"
+    "# mupen64plus-input-suxty configuration\n"
     "# Edited by hand or by the in-game menu.  Unknown keys are kept.\n"
     "#\n"
     "# [menu]  menu_combo   buttons that open/close the menu, joined with '+'\n"
@@ -43,7 +43,7 @@ static const char *l_header =
     "#                      you out (default select+start; 'none' turns it off, at your own risk)\n"
     "#         dim_percent  how dark the frozen game frame is behind the menu (0-90)\n"
     "#         show_hints   show the button hint footer\n"
-    "#         show_toasts  brief on-screen notices (\"Saved slot 3\")\n"
+    "#         show_toasts  brief on-screen notices (\"Saved\")\n"
     "#         toast_ms     how long they stay (300-10000)\n"
     "# [input] swap_ab      swap confirm (A) and back (B)\n"
     "#         nav_deadzone left-stick travel (%) that counts as a D-pad press (10-90)\n"
@@ -54,8 +54,11 @@ static const char *l_header =
     "#         fast_forward_mode   hold | toggle\n"
     "#         fast_forward_speed  percent (50-1000), or 0 for unlimited\n"
     "#         quit_hold_ms        how long the quit combo must be held\n"
-    "#         remap_input   false = leave the input plugin's own configuration alone (no remap layer)\n"
-    "# [states] autosave_on_quit  save the auto slot when leaving the game (used by --resume)\n"
+    "# [states] autosave_on_quit  Quit first saves '<state name>.auto.st' (never a numbered slot); off by default.\n"
+    "#         Resume from it with your front-end, e.g. mupen64plus --savestate <savedir>/<state name>.auto.st\n"
+    "# [audio] volume       0-100, applied when the game starts (absent: whatever the audio plugin starts with)\n"
+    "# [foir]  Video-Foir options of the foir video plugin, by their [Video-Foir] names (Widescreen, Filter, ...);\n"
+    "#         applied through foir's interface when the game starts; mupen64plus.cfg is never written by them\n"
     "# [players]  p1..p4 = auto | none | <pad name>: which controller drives which N64 player\n"
     "# [pad:<pad name>]  the N64 mapping of one pad model (written by Controls in the menu): preset, deadzone,\n"
     "#         peak, modifier = button:N | hat:N:up | axis:N+ | none, and one key per N64 input (a b z start l r\n"
@@ -63,15 +66,50 @@ static const char *l_header =
     "#         while the modifier is held";
 
 static const char *l_game_header =
-    "# mupen64plus-ui-suxty: per-game overrides for one ROM (the file name is the ROM's MD5)\n"
-    "# Everything here wins over suxty.cfg / mupen64plus.cfg for this game only.  Delete a line (or the whole\n"
+    "# mupen64plus-input-suxty: per-game overrides for one ROM (the file name is the ROM's MD5)\n"
+    "# Everything here wins over suxty.cfg for this game only.  Delete a line (or the whole\n"
     "# file) to go back to the global value; the in-game menu does the same with \"Reset to global\".\n"
     "#\n"
-    "# [hotkeys] [states] [input] [menu] [audio]   the same keys as suxty.cfg (volume = 0-100 is in [audio])\n"
-    "# [players], [pad:<pad name>]                 controller choice / N64 mapping of one pad model\n"
-    "# [cfg:<section>]                              core or plugin parameters, e.g. [cfg:Video-Foir]  Threads = -1\n"
-    "#                                              (read when the game starts: change them, then restart the game)\n"
-    "# [plugins]  video / audio / input / rsp = a plugin file name or path, used when none is given on the command line";
+    "# [hotkeys] [states] [input] [menu] [audio] [foir]   the same keys as suxty.cfg (volume = 0-100 is in [audio])\n"
+    "# [players], [pad:<pad name>]                 controller choice / N64 mapping of one pad model";
+
+/* Keys and sections of earlier versions (the front-end build) that no longer mean anything.  They are dropped when a
+ * file is loaded, so an old suxty.cfg / game file loads without complaint. */
+static const char *const l_obsolete_keys[][2] = {
+    { "input", "remap_input" }
+};
+
+static int prune_obsolete(ini_t *ini)
+{
+    size_t i;
+    int n = 0;
+    const char *sec, *key;
+    char s[128], k[128];
+
+    if (ini == NULL)
+        return 0;
+    for (i = 0; i < sizeof(l_obsolete_keys) / sizeof(l_obsolete_keys[0]); i++)
+        n += ini_remove(ini, l_obsolete_keys[i][0], l_obsolete_keys[i][1]);
+    n += ini_remove_section(ini, "plugins");                     /* per-game plugin choice: the front-end owns that now */
+    n += ini_remove_section(ini, "UI-Suxty");
+    for (;;)                                                     /* [cfg:...]: per-game core / plugin parameters */
+    {
+        int found = 0, j;
+        for (j = 0; ini_entry(ini, j, &sec, &key, NULL); j++)
+            if (strncmp(sec, "cfg:", 4) == 0)
+            {
+                snprintf(s, sizeof(s), "%s", sec);
+                snprintf(k, sizeof(k), "%s", key);
+                ini_remove(ini, s, k);
+                n++;
+                found = 1;
+                break;
+            }
+        if (!found)
+            break;
+    }
+    return n;
+}
 
 static void join(char *dst, size_t size, const char *dir, const char *name)
 {
@@ -100,8 +138,21 @@ int cfg_init(const char *config_dir)
         return -1;
     if (ini_load(g_cfg.ini, g_cfg.cfg_path) != 0)
         DebugMessage(M64MSG_INFO, "creating default config '%s'", g_cfg.cfg_path);
+    else
+    {
+        int removed = prune_obsolete(g_cfg.ini);
+        if (ini_has(g_cfg.ini, "general", "version") && ini_get_int(g_cfg.ini, "general", "version", 1) < CFG_VERSION)
+        {
+            /* the front-end build saved the auto slot on every quit, for --resume; now it blocks Quit until the save
+             * is written and is off unless asked for */
+            removed += ini_remove(g_cfg.ini, "states", "autosave_on_quit");
+            ini_set_int(g_cfg.ini, "general", "version", CFG_VERSION);
+        }
+        if (removed > 0)
+            DebugMessage(M64MSG_INFO, "suxty.cfg: dropped %d setting(s) of the old front-end build", removed);
+    }
 
-    ini_default(g_cfg.ini, "general", "version", "1");
+    ini_default(g_cfg.ini, "general", "version", "2");
     ini_default(g_cfg.ini, "menu", "menu_combo", "select+start");
     ini_default(g_cfg.ini, "menu", "recovery_combo", "select+start");
     ini_default(g_cfg.ini, "menu", "dim_percent", "65");
@@ -111,7 +162,6 @@ int cfg_init(const char *config_dir)
     ini_default(g_cfg.ini, "menu", "toast_ms", "1800");
     ini_default(g_cfg.ini, "input", "nav_deadzone", "50");
     ini_default(g_cfg.ini, "input", "block_game_input", "true");
-    ini_default(g_cfg.ini, "input", "remap_input", "true");
     ini_default(g_cfg.ini, "hotkeys", "hotkey_button", "select");
     ini_default(g_cfg.ini, "hotkeys", "quick_save", "hotkey+r");
     ini_default(g_cfg.ini, "hotkeys", "quick_load", "hotkey+l");
@@ -122,7 +172,7 @@ int cfg_init(const char *config_dir)
     ini_default(g_cfg.ini, "hotkeys", "fast_forward_mode", "hold");
     ini_default(g_cfg.ini, "hotkeys", "fast_forward_speed", "300");
     ini_default(g_cfg.ini, "hotkeys", "quit_hold_ms", "1000");
-    ini_default(g_cfg.ini, "states", "autosave_on_quit", "true");
+    ini_default(g_cfg.ini, "states", "autosave_on_quit", "false");
 
     cfg_apply();
     cfg_save();
@@ -204,7 +254,7 @@ void cfg_apply(void)
         g_cfg.quit_hold_ms = sp < 0 ? 0 : sp > 5000 ? 5000 : sp;
     }
     g_cfg.block_game_input = cfg_get_bool("input", "block_game_input", 1);
-    g_cfg.autosave_on_quit = cfg_get_bool("states", "autosave_on_quit", 1);
+    g_cfg.autosave_on_quit = cfg_get_bool("states", "autosave_on_quit", 0);
     g_cfg.show_toasts = cfg_get_bool("menu", "show_toasts", 1);
     g_cfg.toast_ms = cfg_get_int("menu", "toast_ms", 1800);
     toast_set_enabled(g_cfg.show_toasts);
@@ -306,7 +356,11 @@ int cfg_load_game(const char *md5)
     if (g_cfg.game == NULL)
         return -1;
     if (ini_load(g_cfg.game, g_cfg.game_path) == 0)
-        DebugMessage(M64MSG_INFO, "game profile: %s (%d overrides)", g_cfg.game_path, ini_count(g_cfg.game));
+    {
+        int removed = prune_obsolete(g_cfg.game);
+        DebugMessage(M64MSG_INFO, "game profile: %s (%d overrides%s)", g_cfg.game_path, ini_count(g_cfg.game),
+                     removed > 0 ? ", old front-end settings dropped" : "");
+    }
     else
         DebugMessage(M64MSG_VERBOSE, "game profile: none yet (%s)", g_cfg.game_path);
     cfg_apply();
@@ -328,7 +382,7 @@ int cfg_key_overridable(const char *section, const char *key)
     static const char *const global_only[][2] = {
         { "menu", "dim_percent" }, { "menu", "show_hints" }, { "menu", "show_toasts" }, { "menu", "toast_ms" },
         { "menu", "recovery_combo" },                       /* lock-out protection must not depend on the game */
-        { "input", "swap_ab" }, { "input", "nav_deadzone" }, { "input", "block_game_input" }, { "input", "remap_input" },
+        { "input", "swap_ab" }, { "input", "nav_deadzone" }, { "input", "block_game_input" },
         { "general", "version" }
     };
     size_t i;

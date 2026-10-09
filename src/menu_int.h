@@ -29,7 +29,6 @@
 typedef enum {
     PAGE_MAIN,
     PAGE_STATES,
-    PAGE_BUSY,
     PAGE_CONFIRM_OVERWRITE,
     PAGE_CONFIRM_DELETE,
     PAGE_SETTINGS,
@@ -46,12 +45,10 @@ typedef enum {
     PAGE_COMBO_CAPTURE,
     PAGE_COMBO_CONFIRM,
     PAGE_CONFIRM_CTL_RESET,
-    PAGE_VIDEO,              /* menu_prof.c from here on: per-game core / plugin options and the game profile */
+    PAGE_VIDEO,              /* menu_av.c from here on: foir's options, the volume and the game profile */
     PAGE_AUDIO,
-    PAGE_EMU,
     PAGE_PROFILE,
-    PAGE_CONFIRM_PROFILE_RESET,
-    PAGE_CONFIRM_RESTART
+    PAGE_CONFIRM_PROFILE_RESET
 } menu_page;
 
 /* "Controls" or "Controls - this game": the edit scope (g_cfg.scope) is part of every settings page's title */
@@ -63,12 +60,13 @@ int         menu_mark_kind(int overridden);
 void      menu_push(menu_page p);
 void      menu_pop(void);
 
-/* menu_prof.c */
-int  prof_owns_page(menu_page p);
-/* returns MENU_RESTART when the user asked to restart the game; menu_result is in menu.h */
-int  prof_frame(menu_page p, uint32_t pressed, int back);
-void prof_reset(void);                /* the menu was (re)opened */
-void prof_leave_page(menu_page p);    /* page `p` was just left */
+/* menu_av.c */
+int  av_owns_page(menu_page p);
+int  av_video_available(void);        /* foir is the video plugin: the Video page exists */
+int  av_audio_available(void);        /* the core can report the volume: the Audio page exists */
+void av_frame(menu_page p, int back);
+void av_reset(void);                  /* the menu was (re)opened */
+void av_leave_page(menu_page p);      /* page `p` was just left */
 
 /* menu_ctl.c */
 int  ctl_owns_page(menu_page p);

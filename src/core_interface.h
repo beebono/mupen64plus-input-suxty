@@ -18,7 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-
 #if !defined(CORE_INTERFACE_H)
 #define CORE_INTERFACE_H
 
@@ -27,52 +26,18 @@
 #include "m64p_frontend.h"
 #include "m64p_types.h"
 
-/* function declarations */
-extern m64p_error AttachCoreLib(const char *CoreLibFilepath);
-extern m64p_error DetachCoreLib(void);
-extern m64p_error AttachCoreHandle(m64p_dynlib_handle handle);   /* plugin mode: use the front-end's core handle */
+/* PluginStartup(): resolve the core functions from the handle the front-end gave us */
+extern m64p_error AttachCoreHandle(m64p_dynlib_handle handle);
+extern void       DetachCoreLib(void);
 
-/* global variables from core_interface.c */
-extern int g_CoreCapabilities;
-extern int g_CoreAPIVersion;
-
-/* declarations of Core library handle and pointers to common functions */
 extern m64p_dynlib_handle      CoreHandle;
-extern ptr_CoreErrorMessage    CoreErrorMessage;
-
-/* declarations of pointers to Core front-end functions */
-extern ptr_CoreStartup         CoreStartup;
-extern ptr_CoreShutdown        CoreShutdown;
-extern ptr_CoreAttachPlugin    CoreAttachPlugin;
-extern ptr_CoreDetachPlugin    CoreDetachPlugin;
 extern ptr_CoreDoCommand       CoreDoCommand;
 extern ptr_CoreOverrideVidExt  CoreOverrideVidExt;
 
-/* declarations of pointers to Core config functions */
-extern ptr_ConfigListSections     ConfigListSections;
 extern ptr_ConfigOpenSection      ConfigOpenSection;
-extern ptr_ConfigDeleteSection    ConfigDeleteSection;
-extern ptr_ConfigSaveSection      ConfigSaveSection;
-extern ptr_ConfigListParameters   ConfigListParameters;
-extern ptr_ConfigSaveFile         ConfigSaveFile;
-extern ptr_ConfigSetParameter     ConfigSetParameter;
-extern ptr_ConfigGetParameter     ConfigGetParameter;
-extern ptr_ConfigGetParameterType ConfigGetParameterType;
-extern ptr_ConfigGetParameterHelp ConfigGetParameterHelp;
-extern ptr_ConfigSetDefaultInt    ConfigSetDefaultInt;
-extern ptr_ConfigSetDefaultFloat  ConfigSetDefaultFloat;
-extern ptr_ConfigSetDefaultBool   ConfigSetDefaultBool;
-extern ptr_ConfigSetDefaultString ConfigSetDefaultString;
 extern ptr_ConfigGetParamInt      ConfigGetParamInt;
-extern ptr_ConfigGetParamFloat    ConfigGetParamFloat;
-extern ptr_ConfigGetParamBool     ConfigGetParamBool;
 extern ptr_ConfigGetParamString   ConfigGetParamString;
-
-extern ptr_ConfigHasUnsavedChanges    ConfigHasUnsavedChanges;
-
-extern ptr_ConfigGetSharedDataFilepath ConfigGetSharedDataFilepath;
 extern ptr_ConfigGetUserConfigPath     ConfigGetUserConfigPath;
 extern ptr_ConfigGetUserDataPath       ConfigGetUserDataPath;
-extern ptr_ConfigGetUserCachePath      ConfigGetUserCachePath;
 
 #endif /* #define CORE_INTERFACE_H */

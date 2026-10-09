@@ -34,7 +34,7 @@
  *   - A second layer, active while the optional *modifier* control is held: where layer 1 defines a source it
  *     replaces layer 0 for that N64 input, and any layer-0 input whose physical control is used by layer 1 (or
  *     is the modifier itself) is silenced meanwhile.  That is how "face buttons -> C buttons while R2 is held"
- *     works without the stock input plugin having to know anything about modifiers.
+ *     works without anything else having to know about modifiers.
  *   - Analog stick: deadzone and range ("peak") in percent of the travel of each half axis.
  */
 

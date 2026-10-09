@@ -28,7 +28,7 @@
 #include "menu.h"
 #include "menu_int.h"
 #include "pad.h"
-#include "profile.h"
+#include "audio.h"
 #include "remap.h"
 #include "states.h"
 #include "ui.h"
@@ -48,8 +48,6 @@ static ui_card    l_cards[STATES_NUM_ENTRIES];
 static state_info l_info[STATES_NUM_ENTRIES];
 static char       l_msg[64];
 static int        l_msg_kind;
-static int        l_busy_slot;
-static uint32_t   l_busy_t0;
 
 void menu_set_game_name(const char *name)
 {
@@ -130,39 +128,11 @@ void menu_open(int current_slot)
 {
     l_depth = 0;
     ctl_reset();
-    prof_reset();
+    av_reset();
     l_sel = current_slot >= 0 && current_slot < STATES_NUM_SLOTS ? current_slot : 0;
     set_msg("", 0);
     push(PAGE_MAIN);
     ui_set_hints_visible(g_cfg.show_hints);
-}
-
-void menu_open_states(int current_slot, int busy, const char *msg, int kind)
-{
-    menu_open(current_slot);
-    refresh_cards();
-    push(PAGE_STATES);
-    set_msg(msg, kind);
-    if (busy)
-    {
-        l_busy_slot = l_sel;
-        l_busy_t0 = SDL_GetTicks();
-        push(PAGE_BUSY);
-    }
-}
-
-int menu_busy(void)
-{
-    return l_depth > 0 && l_stack[l_depth - 1] == PAGE_BUSY;
-}
-
-void menu_busy_done(const char *msg, int kind)
-{
-    if (menu_busy())
-        pop();
-    refresh_cards();
-    set_msg(msg, kind);
-    ui_focus_set(0);
 }
 
 static menu_result page_main(void)
@@ -177,8 +147,8 @@ static menu_result page_main(void)
     if (ui_button("Save States")) { refresh_cards(); set_msg("", 0); push(PAGE_STATES); }
     if (ui_button("Reset"))       push(PAGE_CONFIRM_RESET);
     if (ui_button("Controls"))    push(PAGE_CONTROLS);
-    if (ui_button("Video"))       push(PAGE_VIDEO);
-    if (ui_button("Audio"))       push(PAGE_AUDIO);
+    if (av_video_available() && ui_button("Video"))   push(PAGE_VIDEO);      /* foir only */
+    if (av_audio_available() && ui_button("Audio"))   push(PAGE_AUDIO);
     if (ui_button("Settings"))    push(PAGE_SETTINGS);
     /* where the changes made in the Controls / Video / Audio / Settings pages are saved */
     if (ui_choice("Apply to", &sc, scopes, cfg_game_available() ? 2 : 1))
@@ -209,7 +179,7 @@ static menu_result page_states(uint32_t pressed)
     ui_status(l_msg, l_msg_kind);
     act = ui_button_dis(is_auto ? "Save (auto slot)" : "Save", is_auto);
     if (act < 0)
-        set_msg("The auto slot is saved when you quit", 0);
+        set_msg("The auto slot is written by Quit (Settings: Auto-save)", 0);
     else if (act > 0)
     {
         l_action_slot = l_sel;
@@ -218,9 +188,10 @@ static menu_result page_states(uint32_t pressed)
         else
             r = MENU_SAVE_STATE;
     }
-    act = ui_button_dis("Load", !exists);
+    /* the auto-save is loaded by the launcher at the next start (--savestate), not by the menu */
+    act = ui_button_dis(is_auto ? "Load (by launcher)" : "Load", is_auto || !exists);
     if (act < 0)
-        set_msg("Nothing saved here yet", 0);
+        set_msg(is_auto ? "The auto-save is loaded by your launcher" : "Nothing saved here yet", 0);
     else if (act > 0)
     {
         l_action_slot = l_sel;
@@ -233,20 +204,6 @@ static menu_result page_states(uint32_t pressed)
         push(PAGE_CONFIRM_DELETE);
     ui_panel_end("Left/Right Slot   A Select   B Back");
     return r;
-}
-
-static menu_result page_busy(void)
-{
-    char buf[48];
-    int dots = (int) ((SDL_GetTicks() - l_busy_t0) / 250) % 4;
-    static const char *const d[4] = { "", ".", "..", "..." };
-
-    ui_panel_begin("Save States", 3);
-    snprintf(buf, sizeof(buf), "Saving slot %d%s", l_busy_slot, d[dots]);
-    ui_label("");
-    ui_label(buf);
-    ui_panel_end("Please wait");
-    return MENU_NONE;
 }
 
 /* options for the "choose one" rows: a value table plus how to show it */
@@ -309,7 +266,8 @@ static void page_settings(void)
     int dim = g_cfg.dim_percent;
     int hints = g_cfg.show_hints;
     int toasts = g_cfg.show_toasts;
-    int autosave = cfg_get_scoped_bool("states", "autosave_on_quit", 1);
+    int autosave = cfg_get_scoped_bool("states", "autosave_on_quit", 0);
+    int swap = g_cfg.swap_ab;
     int ff_mode = strcasecmp(cfg_get_scoped("hotkeys", "fast_forward_mode", "hold"), "toggle") == 0;
     int game = g_cfg.scope == CFG_SCOPE_GAME;
     char title[32];
@@ -327,6 +285,8 @@ static void page_settings(void)
         }
         if (ui_toggle("Notices", &toasts))
             cfg_set_bool("menu", "show_toasts", toasts);
+        if (ui_toggle("Swap A/B", &swap))
+            cfg_set_bool("input", "swap_ab", swap);
     }
     if (ui_toggle("Auto-save on quit", &autosave))
     {
@@ -341,8 +301,6 @@ static void page_settings(void)
     settings_row_end("hotkeys", "fast_forward_speed");
     settings_choice("Quit hold", &l_quit_hold, " ms", "hotkeys", "quit_hold_ms", 1000);
     settings_row_end("hotkeys", "quit_hold_ms");
-    if (ui_item("Emulation", ">") == 1)
-        push(PAGE_EMU);
     if (ui_item("Hotkeys", ">") == 1)
         push(PAGE_HOTKEYS);
     if (ui_item("Game profile", ">") == 1)
@@ -394,7 +352,6 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
             r = page_states(pressed);
             if (back && r == MENU_NONE && l_stack[l_depth - 1] == PAGE_STATES) pop();
             break;
-        case PAGE_BUSY:          page_busy(); break;
         case PAGE_CONFIRM_OVERWRITE:
         {
             char q[40];
@@ -411,7 +368,8 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
             if (l_action_slot != l_sel)
                 l_action_slot = l_sel;
             snprintf(q, sizeof(q), l_sel == STATES_AUTO_SLOT ? "Delete the auto-save?" : "Delete slot %d?", l_sel);
-            yes = (page_confirm("Confirm", q, l_info[l_sel].pj64 ? "(the Project64 state)" : NULL, MENU_RESET) == MENU_RESET);
+            yes = (page_confirm("Confirm", q, l_sel == STATES_AUTO_SLOT ? "(and its backups)" : l_info[l_sel].pj64 ? "(the Project64 state)" : NULL,
+                            MENU_RESET) == MENU_RESET);
             if (yes)
             {
                 if (states_delete(l_sel) == 0)
@@ -436,12 +394,11 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
         case PAGE_CONFIRM_CTL_RESET:
             ctl_frame(page, pressed, held, back);
             break;
-        case PAGE_VIDEO: case PAGE_AUDIO: case PAGE_EMU: case PAGE_PROFILE: case PAGE_CONFIRM_PROFILE_RESET:
-        case PAGE_CONFIRM_RESTART:
-            r = (menu_result) prof_frame(page, pressed, back);
+        case PAGE_VIDEO: case PAGE_AUDIO: case PAGE_PROFILE: case PAGE_CONFIRM_PROFILE_RESET:
+            av_frame(page, back);
             break;
         case PAGE_CONFIRM_QUIT:
-            r = l_quit_saves ? page_confirm("Confirm", "Quit the game?", "(progress is auto-saved)", MENU_QUIT)
+            r = l_quit_saves ? page_confirm("Confirm", "Quit the game?", "(saves the auto slot first)", MENU_QUIT)
                              : page_confirm("Confirm", "Quit the game?", NULL, MENU_QUIT);
             if (back) pop();
             break;
@@ -452,10 +409,10 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
         if (page == PAGE_SETTINGS)
             cfg_save();
         ctl_leave_page(page);
-        prof_leave_page(page);
+        av_leave_page(page);
     }
     return r;
 }
 
 int menu_combo_pressed(uint32_t held)  { return ctl_combo_pressed(held); }
-void menu_closing(void)                { ctl_menu_closing(); profile_flush(); remap_flush(); }
+void menu_closing(void)                { ctl_menu_closing(); remap_flush(); cfg_save(); }

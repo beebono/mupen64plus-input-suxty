@@ -26,14 +26,13 @@
 #include <SDL.h>
 
 #include "cfg.h"
-#include "core_interface.h"
 #include "inputfilter.h"
 #include "m64p_types.h"
 #include "main.h"
 #include "remap.h"
 
-/* See remap.h for the design.  Everything here runs on the emulation thread (the menu and the input plugin's
- * GetKeys both do), so there are no locks. */
+/* See remap.h for the design.  Everything here runs on the emulation thread (the menu and GetKeys both do), so there
+ * are no locks. */
 
 /* A pad model's mapping, found by the pad's SDL name (so it follows the pad when players are swapped).  Two layers
  * (M4): `glob` is the one in suxty.cfg, `game` the one in the game's file (valid when has_game).  What the game
@@ -54,8 +53,7 @@ typedef struct {
     int           has_want_game;
     int           src_pad;        /* pad.c index of the pad that feeds this player, -1 = none */
     int           gsrc_pad;       /* ... and the one the GLOBAL choices would give (what mupen64plus.cfg describes) */
-    SDL_Joystick *plug_js;        /* the joystick the input plugin reads for this player (fixed at launch) */
-    int           plug_dev;       /* its SDL device index, -1 = this player has no pad */
+    int           live;           /* this player was reported as present to the core at launch (a pad added later is only used from the next launch) */
     n64_state     st;
 } rplayer;
 
@@ -64,11 +62,7 @@ static mapslot  l_maps[PAD_MAX_PADS];
 static int      l_nmaps;
 static padmap   l_scratch;           /* what the menu edits for a player without a pad (never stored) */
 static int      l_enabled;
-static int      l_launched;          /* plugin config exported for a launch */
-static int      l_virtual_live;      /* the virtual layout is in the plugin's in-memory config right now */
-static int      l_save_core = 1;
-static int      l_export_pending;
-static unsigned l_hits;
+static int      l_launched;          /* remap_prepare_launch() ran: the players are fixed */
 static int      l_gen;               /* pad_generation() the assignment was made for */
 
 int remap_enabled(void) { return l_enabled; }
@@ -207,7 +201,7 @@ int remap_init(void)
     memset(l_pl, 0, sizeof(l_pl));
     l_nmaps = 0;
     padmap_clear(&l_scratch);
-    l_enabled = ini_get_bool(g_cfg.ini, "input", "remap_input", 1);
+    l_enabled = 1;
     for (p = 0; p < REMAP_PLAYERS; p++)
     {
         const char *w = ini_get(g_cfg.ini, "players", players_key(p), "auto");
@@ -222,13 +216,10 @@ int remap_init(void)
             snprintf(l_pl[p].want_game, sizeof(l_pl[p].want_game), "%s", w);
             l_pl[p].has_want_game = 1;
         }
-        l_pl[p].plug_dev = -1;
         l_pl[p].map = &l_scratch;
         l_pl[p].gsrc_pad = -1;
     }
     reassign();
-    if (!l_enabled)
-        DebugMessage(M64MSG_INFO, "controller remap layer disabled ([input] remap_input = false)");
     return 0;
 }
 
@@ -239,26 +230,7 @@ void remap_shutdown(void)
     l_launched = 0;
 }
 
-/* ---- evaluation (called by the SDL overrides) ---------------------------------------------------- */
-
-int remap_player_for(SDL_Joystick *js)
-{
-    int p;
-    if (!l_launched || js == NULL)
-        return -1;
-    for (p = 0; p < REMAP_PLAYERS; p++)
-        if (l_pl[p].plug_js == js)
-            return p;
-    /* the plugin re-opened a controller after it was unplugged and plugged back in: a new handle for the same device */
-    for (p = 0; p < REMAP_PLAYERS; p++)
-        if (l_pl[p].plug_dev >= 0 && l_pl[p].plug_js != NULL &&
-            SDL_JoystickInstanceID(js) == SDL_JoystickGetDeviceInstanceID(l_pl[p].plug_dev))
-        {
-            l_pl[p].plug_js = js;
-            return p;
-        }
-    return -1;
-}
+/* ---- evaluation (GetKeys) -------------------------------------------------------------------- */
 
 void remap_update(void)
 {
@@ -275,8 +247,6 @@ void remap_update(void)
         rplayer *pl = &l_pl[p];
         padmap_io io;
         SDL_Joystick *src;
-        if (pl->plug_js == NULL)
-            continue;
         src = pl->src_pad >= 0 ? pad_joystick(pl->src_pad) : NULL;
         if (src == NULL)
         {
@@ -288,28 +258,13 @@ void remap_update(void)
     }
 }
 
-int remap_virtual_button(int p, int button)
-{
-    l_hits++;
-    return (button >= 0 && button < N64_NBUTTONS) ? (int) ((l_pl[p].st.buttons >> button) & 1u) : 0;
-}
-
-int remap_virtual_axis(int p, int axis)
-{
-    l_hits++;
-    return axis == 0 ? l_pl[p].st.sx : axis == 1 ? l_pl[p].st.sy : 0;
-}
-
-unsigned remap_virtual_hits(void) { return l_hits; }
-
-/* plugin mode: the N64 state of player p as of the last remap_update(); 0 if the player has no pad */
+/* GetKeys: the N64 state of player p as of the last remap_update(); 0 if the player has no pad */
 int remap_player_state(int p, n64_state *out)
 {
     memset(out, 0, sizeof(*out));
     if (!l_launched || p < 0 || p >= REMAP_PLAYERS || l_pl[p].src_pad < 0)
         return 0;
     *out = l_pl[p].st;
-    l_hits++;
     return 1;
 }
 
@@ -326,194 +281,35 @@ void remap_probe(int p, n64_state *out)
     inputfilter_bypass(0);
 }
 
-/* ---- the plugin's Input-SDL-ControlN sections ---------------------------------------------------- */
+/* ---- launch ------------------------------------------------------------------------------------- */
 
-static void cfg_str(m64p_handle h, const char *key, const char *val) { (*ConfigSetParameter)(h, key, M64TYPE_STRING, val); }
-static void cfg_int(m64p_handle h, const char *key, int val)         { (*ConfigSetParameter)(h, key, M64TYPE_INT, &val); }
-static void cfg_bool(m64p_handle h, const char *key, int val)        { (*ConfigSetParameter)(h, key, M64TYPE_BOOL, &val); }
-
-static const char *hat_dir(int mask)
-{
-    return mask == SDL_HAT_UP ? "Up" : mask == SDL_HAT_DOWN ? "Down" : mask == SDL_HAT_LEFT ? "Left" : "Right";
-}
-
-/* "button(1)", "axis(2+)", "hat(0 Up)" */
-static void fmt_button(const padsrc *s, char *out, size_t size)
-{
-    switch (s->type)
-    {
-        case PAD_BIND_BUTTON: snprintf(out, size, "button(%d)", s->index); break;
-        case PAD_BIND_AXIS:   snprintf(out, size, "axis(%d%c)", s->index, s->dir < 0 ? '-' : '+'); break;
-        case PAD_BIND_HAT:    snprintf(out, size, "hat(%d %s)", s->index, hat_dir(s->hat_mask)); break;
-        default:              out[0] = 0; break;
-    }
-}
-
-/* the stick: "axis(0-,0+)", "button(a,b)", "hat(0 Left Right)"; the stock plugin takes a, b of one kind each */
-static void fmt_stick(const padsrc *a, const padsrc *b, char *out, size_t size)
-{
-    size_t n = 0;
-    out[0] = 0;
-    if (a->type == PAD_BIND_BUTTON && b->type == PAD_BIND_BUTTON)
-        n += (size_t) snprintf(out + n, size - n, "button(%d,%d) ", a->index, b->index);
-    if (a->type == PAD_BIND_AXIS && b->type == PAD_BIND_AXIS)
-        n += (size_t) snprintf(out + n, size - n, "axis(%d%c,%d%c) ", a->index, a->dir < 0 ? '-' : '+', b->index, b->dir < 0 ? '-' : '+');
-    if (a->type == PAD_BIND_HAT && b->type == PAD_BIND_HAT && a->index == b->index)
-        n += (size_t) snprintf(out + n, size - n, "hat(%d %s %s) ", a->index, hat_dir(a->hat_mask), hat_dir(b->hat_mask));
-    if (n > 0 && out[n - 1] == ' ')
-        out[n - 1] = 0;
-}
-
-/* plugin parameter names, in n64_ctl order for the 14 buttons */
-static const char *const l_plug_key[N64_NBUTTONS] = {
-    "A Button", "B Button", "Z Trig", "Start", "L Trig", "R Trig",
-    "DPad U", "DPad D", "DPad L", "DPad R", "C Button U", "C Button D", "C Button L", "C Button R"
-};
-
-/* virt: the virtual layout the plugin reads at start-up, for the pads this game uses.  Otherwise the standard form of
- * the GLOBAL configuration (global player choices, global mappings), which is all that mupen64plus.cfg ever holds: a
- * game's own choices live in its game file only. */
-static void write_section(int p, int virt)
-{
-    char name[32], buf[128];
-    m64p_handle h;
-    rplayer *pl = &l_pl[p];
-    mapslot *gs = slot_for_pad(pl->gsrc_pad);
-    const padmap *m = virt ? pl->map : (gs != NULL ? &gs->glob : &l_scratch);
-    int dev = virt ? pl->plug_dev : (pl->gsrc_pad >= 0 ? pad_device_index(pl->gsrc_pad) : -1);
-    int pad = virt ? pl->src_pad : pl->gsrc_pad;
-    int n;
-
-    snprintf(name, sizeof(name), "Input-SDL-Control%d", p + 1);
-    if ((*ConfigOpenSection)(name, &h) != M64ERR_SUCCESS)
-        return;
-    {
-        float ver = 0;
-        if ((*ConfigGetParameter)(h, "version", M64TYPE_FLOAT, &ver, sizeof(ver)) != M64ERR_SUCCESS)
-        {
-            ver = 2.0f;
-            (*ConfigSetParameter)(h, "version", M64TYPE_FLOAT, &ver);
-        }
-    }
-    cfg_int(h, "mode", 0);                                  /* fully manual: what is below is used as it is */
-    cfg_int(h, "device", dev);
-    cfg_str(h, "name", dev >= 0 && pad >= 0 ? pad_name(pad) : "");
-    cfg_bool(h, "plugged", dev >= 0);
-    cfg_bool(h, "mouse", 0);
-    cfg_str(h, "Mempak switch", "");
-    cfg_str(h, "Rumblepak switch", "");
-    if (virt)
-    {
-        for (n = 0; n < N64_NBUTTONS; n++)
-        {
-            snprintf(buf, sizeof(buf), "button(%d)", n);
-            cfg_str(h, l_plug_key[n], buf);
-        }
-        cfg_str(h, "X Axis", "axis(0-,0+)");
-        cfg_str(h, "Y Axis", "axis(1-,1+)");
-        cfg_str(h, "AnalogDeadzone", "0,0");
-        cfg_str(h, "AnalogPeak", "32767,32767");
-    }
-    else
-    {
-        for (n = 0; n < N64_NBUTTONS; n++)
-        {
-            fmt_button(&m->src[0][n], buf, sizeof(buf));
-            cfg_str(h, l_plug_key[n], buf);
-        }
-        fmt_stick(&m->src[0][N64_SLEFT], &m->src[0][N64_SRIGHT], buf, sizeof(buf));
-        cfg_str(h, "X Axis", buf);
-        fmt_stick(&m->src[0][N64_SUP], &m->src[0][N64_SDOWN], buf, sizeof(buf));
-        cfg_str(h, "Y Axis", buf);
-        snprintf(buf, sizeof(buf), "%d,%d", m->deadzone * 32768 / 100, m->deadzone * 32768 / 100);
-        cfg_str(h, "AnalogDeadzone", buf);
-        snprintf(buf, sizeof(buf), "%d,%d", m->peak * 32768 / 100, m->peak * 32768 / 100);
-        cfg_str(h, "AnalogPeak", buf);
-    }
-}
-
-static void write_all(int virt)
-{
-    int p;
-#ifdef SUXTY_PLUGIN
-    (void) virt;          /* we ARE the input plugin: there is no other plugin whose Input-SDL-ControlN sections need feeding */
-    (void) p;
-    return;
-#endif
-    for (p = 0; p < REMAP_PLAYERS; p++)
-        write_section(p, virt);
-    l_virtual_live = virt;
-}
-
-static void save_sections(void)
-{
-    int p;
-    char name[32];
-    if (!l_save_core || ConfigSaveSection == NULL)
-        return;
-#ifdef SUXTY_PLUGIN
-    (void) name;
-    return;
-#endif
-    for (p = 0; p < REMAP_PLAYERS; p++)
-    {
-        snprintf(name, sizeof(name), "Input-SDL-Control%d", p + 1);
-        if ((*ConfigSaveSection)(name) != M64ERR_SUCCESS)
-        {
-            DebugMessage(M64MSG_WARNING, "couldn't save config section %s", name);
-            return;
-        }
-    }
-}
-
-void remap_set_save_core_config(int save) { l_save_core = save; }
-
+/* Decides who plays (InitiateControllers): the players that have a pad now.  A pad connected later is used by the menu
+ * and by the mapping of an existing player, but the core is told about the players only once. */
 void remap_prepare_launch(void)
 {
     int p, assigned = 0;
 
-    if (!l_enabled)
-        return;
     reassign();
     for (p = 0; p < REMAP_PLAYERS; p++)
-        if (l_pl[p].src_pad >= 0)
+    {
+        l_pl[p].live = l_pl[p].src_pad >= 0;
+        if (l_pl[p].live)
+        {
             assigned++;
-    if (assigned == 0)
-    {
-        DebugMessage(M64MSG_INFO, "no usable gamepad: leaving the input plugin's own configuration alone");
-        l_enabled = 0;
-        return;
+            DebugMessage(M64MSG_INFO, "N64 player %d: '%s'", p + 1, pad_name(l_pl[p].src_pad));
+        }
     }
-    for (p = 0; p < REMAP_PLAYERS; p++)
-    {
-        rplayer *pl = &l_pl[p];
-        pl->plug_dev = pl->src_pad >= 0 ? pad_device_index(pl->src_pad) : -1;
-        pl->plug_js = pl->src_pad >= 0 ? pad_joystick(pl->src_pad) : NULL;
-        if (pl->src_pad >= 0)
-            DebugMessage(M64MSG_INFO, "N64 player %d: '%s' (SDL device %d)", p + 1, pad_name(pl->src_pad), pl->plug_dev);
-    }
-    /* persist the standard form first (so it is on disk whatever happens later) ... */
-    write_all(0);
-    save_sections();
-    remap_flush();
-    /* ... then give the plugin its virtual layout for InitiateControllers */
-    write_all(1);
+    l_enabled = assigned > 0;
+    if (!l_enabled)
+        DebugMessage(M64MSG_WARNING, "no usable gamepad: the game gets no controller input");
     l_gen = pad_generation();
     l_launched = 1;
     remap_update();
 }
 
-void remap_after_plugin_init(void)
-{
-    if (l_launched && l_virtual_live)
-        write_all(0);
-}
-
 void remap_finish(void)
 {
     remap_flush();
-    if (l_launched && l_virtual_live)
-        write_all(0);
     l_launched = 0;
 }
 
@@ -555,7 +351,7 @@ padmap *remap_edit(int p)
 }
 
 int  remap_player_pad(int p)           { return l_pl[p].src_pad; }
-int  remap_player_live(int p)          { return l_pl[p].plug_js != NULL; }
+int  remap_player_live(int p)          { return l_pl[p].live; }
 
 const char *remap_player_want(int p)
 {
@@ -606,25 +402,12 @@ void remap_commit(int p)
             ini_set(g_cfg.ini, "players", players_key(i), l_pl[i].want_g[0] ? l_pl[i].want_g : "auto");
     }
     refresh_effective();
-    l_export_pending = 1;
     if (l_launched)
         remap_update();                      /* the next poll already sees the change */
 }
 
 void remap_flush(void)
 {
-    if (l_export_pending)
-    {
-        l_export_pending = 0;
-        if (l_enabled && l_launched && !l_virtual_live)
-        {
-            /* memory holds the real form after the plugin has started; refresh it and write the sections */
-            int pp;
-            for (pp = 0; pp < REMAP_PLAYERS; pp++)
-                write_section(pp, 0);
-            save_sections();
-        }
-    }
     cfg_save();
 }
 
@@ -639,7 +422,7 @@ int remap_set_pad(int p, const char *want)
         snprintf(l_pl[p].want_g, sizeof(l_pl[p].want_g), "%s", want ? want : "");
     reassign();
     remap_commit(p);
-    return l_pl[p].plug_js != NULL || !l_launched;
+    return l_pl[p].live || !l_launched;
 }
 
 /* "Reset to global" for the controllers of this game: the player choices and every pad's mapping in the game file */
@@ -682,19 +465,4 @@ int remap_apply_preset(int p, int preset, char *msg, size_t msgsize)
         return -1;
     remap_commit(p);
     return 0;
-}
-
-/* 1 = the plugin reads the virtual pad, -1 = players are plugged but it never did (a plugin that bypasses SDL's
- * joystick calls), 0 = nothing to check */
-int remap_health_check(void)
-{
-    int p, plugged = 0;
-    if (!l_launched)
-        return 0;
-    for (p = 0; p < REMAP_PLAYERS; p++)
-        if (l_pl[p].plug_js != NULL)
-            plugged++;
-    if (!plugged)
-        return 0;
-    return l_hits > 0 ? 1 : -1;
 }

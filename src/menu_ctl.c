@@ -263,7 +263,7 @@ static void page_controls(int back)
     if (l_msg[0])
         ui_status_bar(l_msg, l_msg_kind);
     else if (!remap_enabled())
-        ui_status_bar("Remap is off (no gamepad, or remap_input = false)", -1);
+        ui_status_bar("No gamepad found", -1);
     else if (!scope_game() && (remap_pad_overridden(p) || remap_player_want_overridden(p)))
         ui_status_bar("This game has its own settings for this pad", 0);
     else

@@ -20,24 +20,12 @@
 
 /* Hiding hotkey / menu input from the game.
  *
- * Problem: the input plugin and suxty read the same physical controller.  When the user presses
- * Select+R for a quick-save, or Select+Start for the menu, the game must not also see Select, R or
- * Start.
+ * Problem: the game and the menu read the same physical controller.  When the user presses Select+R for a quick-save,
+ * or Select+Start for the menu, the game must not also see Select, R or Start.
  *
- * Options considered (stock mupen64plus-input-sdl must keep working, unmodified):
- *   - SDL hints: none exist that hide buttons from one consumer.
- *   - Remapping the controller: the plugin reads raw SDL_Joystick indices through its own mapping;
- *     changing the SDL mapping does not affect it, and rewriting the plugin's config per hotkey press is
- *     not feasible.
- *   - A uinput proxy device with EVIOCGRAB: works in principle, but needs root/uinput and makes the
- *     plugin's device selection (by name/index) fragile.
- *   - Filtering the plugin's view of the joystick API (chosen).  The plugin, the core and suxty live in
- *     one process.  The input plugin only reads state through SDL_JoystickGetButton / GetAxis / GetHat
- *     after an SDL_JoystickUpdate().  suxty's executable defines those four functions (listed in
- *     projects/unix/suxty.exports so they are exported), so the dynamic linker binds the plugin's calls to
- *     them instead of the ones in libSDL2, and they forward to the real functions through
- *     dlsym(RTLD_NEXT, ...).  The overrides hide controls from the plugin while the filter is active, and
- *     suxty itself always reads the real state (inputfilter_bypass()).
+ * suxty is the input plugin, so it decides what the game sees: GetKeys() builds the N64 state from the pad through
+ * the padmap model (remap.c), reading the physical controls via inputfilter_phys_*(), which hide the controls that are
+ * filtered right now.  Nothing is intercepted in SDL.
  *
  * When is input hidden?
  *   - while the hotkey button is held on a controller: the game sees that controller neutral (every button, hat
@@ -47,16 +35,8 @@
  *   - "sticky": a button that was pressed while one of the above applied stays hidden until it is
  *     physically released, so letting go of the hotkey before the other button does not leak that button
  *     to the game.
- * The state is advanced on every SDL_JoystickUpdate(), i.e. in the same poll in which the plugin would
- * first see the press, so not even one frame leaks.
- *
- * Since M3 the same overrides also *are* the controller the input plugin reads for each N64 player: remap.c
- * configures the plugin for a fixed virtual pad and these functions answer for that joystick with the N64 state
- * computed from the player's mapping and the filtered real pad (see remap.h).
- *
- * Limits: only controllers whose layout suxty knows (SDL game controller mapping, or the generic layout)
- * are filtered per button; plugins that use the SDL_GameController API or evdev directly are not covered.
- * Keyboard input is never filtered.
+ * The state is advanced in the same GetKeys poll in which the game would first see the press, so not even one frame
+ * leaks.  Keyboard / test-injected input has no SDL joystick to hide anything from (it never reaches the game).
  */
 
 #ifndef INPUTFILTER_H
@@ -73,25 +53,22 @@ void inputfilter_configure(int enabled, uint32_t hotkey, uint32_t combo_buttons)
 /* The menu is open (or has just closed): everything currently held becomes sticky. */
 void inputfilter_force(int on);
 
-/* While > 0, the SDL overrides pass the real values through (suxty's own polling). */
+/* While > 0 the filter is off and the real values are read (the menu's own polling, the mapping test page). */
 void inputfilter_bypass(int on);
 
-/* Feed the current digital button state of every pad (see pad_read_digital(); called by the SDL_JoystickUpdate
- * override). */
+/* Feed the current digital button state of every pad (see pad_read_digital()). */
 void inputfilter_update(const uint32_t digital[PAD_MAX_PADS + 1]);
 
-/* The physical pad state as the input plugin would see it (hotkey / menu filtering applied), for the remap
- * layer (remap.c) which builds the virtual N64 pad from it.  Under inputfilter_bypass() these are the real values. */
+/* The physical pad state as the game may see it (hotkey / menu filtering applied), for the remap layer (remap.c)
+ * which builds the N64 state from it.  Under inputfilter_bypass() these are the real values. */
 int      inputfilter_phys_button(SDL_Joystick *js, int button);
 int      inputfilter_phys_hat(SDL_Joystick *js, int hat);
 int      inputfilter_phys_axis(SDL_Joystick *js, int axis);
 int      inputfilter_phys_axis_rest(SDL_Joystick *js, int axis);
 
-#ifdef SUXTY_PLUGIN
-void     inputfilter_after_update(void);    /* after SDL_JoystickUpdate(): advance the filter and the virtual N64 pads */
-#endif
+void     inputfilter_after_update(void);    /* after SDL_JoystickUpdate(): advance the filter and the N64 players */
 
 int      inputfilter_active(void);          /* currently hiding something? */
-uint32_t inputfilter_hidden_count(void);    /* statistics: values hidden from the plugin so far */
+uint32_t inputfilter_hidden_count(void);    /* statistics: values hidden from the game so far */
 
 #endif /* INPUTFILTER_H */

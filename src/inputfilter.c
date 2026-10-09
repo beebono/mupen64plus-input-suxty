@@ -18,7 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-#include <dlfcn.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -111,43 +110,12 @@ void inputfilter_update(const uint32_t d[PAD_MAX_PADS + 1])
             v->sticky |= d[i];
         v->sticky &= d[i];                               /* released buttons are visible again */
         if (hot != v->hot)
-            DebugMessage(M64MSG_VERBOSE, "input filter: hotkey %s on pad %d (sticky mask %08x, %u values hidden from the input plugin so far)",
+            DebugMessage(M64MSG_VERBOSE, "input filter: hotkey %s on pad %d (sticky mask %08x, %u values hidden from the game so far)",
                          hot ? "held" : "released", i, (unsigned) v->sticky, (unsigned) l_hidden_count);
         v->hot = hot;
         v->prev = d[i];
     }
     recompute_any();
-}
-
-/* ---- the real SDL functions ---------------------------------------------------------------- */
-
-static void (*real_update)(void);
-static Uint8 (*real_button)(SDL_Joystick *, int);
-static Sint16 (*real_axis)(SDL_Joystick *, int);
-static Uint8 (*real_hat)(SDL_Joystick *, int);
-static SDL_bool (*real_axis_initial)(SDL_Joystick *, int, Sint16 *);
-static int l_resolved;
-
-static void resolve(void)
-{
-    if (l_resolved)
-        return;
-#ifdef SUXTY_PLUGIN
-    /* plugin build: nothing is interposed, the real functions are SDL's own */
-    real_update = SDL_JoystickUpdate;
-    real_button = SDL_JoystickGetButton;
-    real_axis = SDL_JoystickGetAxis;
-    real_hat = SDL_JoystickGetHat;
-    real_axis_initial = SDL_JoystickGetAxisInitialState;
-    l_resolved = 1;
-    return;
-#endif
-    real_update = (void (*)(void)) dlsym(RTLD_NEXT, "SDL_JoystickUpdate");
-    real_button = (Uint8 (*)(SDL_Joystick *, int)) dlsym(RTLD_NEXT, "SDL_JoystickGetButton");
-    real_axis = (Sint16 (*)(SDL_Joystick *, int)) dlsym(RTLD_NEXT, "SDL_JoystickGetAxis");
-    real_hat = (Uint8 (*)(SDL_Joystick *, int)) dlsym(RTLD_NEXT, "SDL_JoystickGetHat");
-    real_axis_initial = (SDL_bool (*)(SDL_Joystick *, int, Sint16 *)) dlsym(RTLD_NEXT, "SDL_JoystickGetAxisInitialState");
-    l_resolved = 1;
 }
 
 static int filtering(void)
@@ -195,7 +163,7 @@ static Sint16 axis_rest(SDL_Joystick *js, int axis)
 {
     Sint16 st = 0;
     /* triggers rest at their end stop (-32768), sticks at 0 */
-    if (real_axis_initial != NULL && real_axis_initial(js, axis, &st) == SDL_TRUE && (st > 20000 || st < -20000))
+    if (SDL_JoystickGetAxisInitialState(js, axis, &st) == SDL_TRUE && (st > 20000 || st < -20000))
         return st;
     return 0;
 }
@@ -204,9 +172,7 @@ static Sint16 axis_rest(SDL_Joystick *js, int axis)
 
 static Uint8 phys_button(SDL_Joystick *joystick, int button)
 {
-    Uint8 v;
-    resolve();
-    v = real_button != NULL ? real_button(joystick, button) : 0;
+    Uint8 v = SDL_JoystickGetButton(joystick, button);
     if (v && filtering() && (full_mask(joystick) || sticky_hides(joystick, PAD_BIND_BUTTON, button, NULL)))
     {
         l_hidden_count++;
@@ -217,9 +183,7 @@ static Uint8 phys_button(SDL_Joystick *joystick, int button)
 
 static Sint16 phys_axis(SDL_Joystick *joystick, int axis)
 {
-    Sint16 v;
-    resolve();
-    v = real_axis != NULL ? real_axis(joystick, axis) : 0;
+    Sint16 v = SDL_JoystickGetAxis(joystick, axis);
     if (filtering() && (full_mask(joystick) || sticky_hides(joystick, PAD_BIND_AXIS, axis, NULL)))
     {
         Sint16 rest = axis_rest(joystick, axis);
@@ -232,9 +196,7 @@ static Sint16 phys_axis(SDL_Joystick *joystick, int axis)
 
 static Uint8 phys_hat(SDL_Joystick *joystick, int hat)
 {
-    Uint8 v;
-    resolve();
-    v = real_hat != NULL ? real_hat(joystick, hat) : 0;
+    Uint8 v = SDL_JoystickGetHat(joystick, hat);
     if (v != SDL_HAT_CENTERED && filtering())
     {
         if (full_mask(joystick))
@@ -259,13 +221,10 @@ int inputfilter_phys_hat(SDL_Joystick *js, int h)     { return phys_hat(js, h); 
 int inputfilter_phys_axis(SDL_Joystick *js, int a)    { return phys_axis(js, a); }
 int inputfilter_phys_axis_rest(SDL_Joystick *js, int a)
 {
-    resolve();
     return axis_rest(js, a);
 }
 
-#ifdef SUXTY_PLUGIN
-/* The plugin does not interpose SDL: pad_poll() calls this right after SDL_JoystickUpdate(), and GetKeys reads the
- * N64 state from remap.c.  Same bookkeeping the SDL_JoystickUpdate() override does in the front-end build. */
+/* After SDL_JoystickUpdate() (pad_refresh): advance the hotkey filter, then evaluate the N64 mapping of every player. */
 void inputfilter_after_update(void)
 {
     if (l_bypass == 0)
@@ -279,49 +238,3 @@ void inputfilter_after_update(void)
         remap_update();
     }
 }
-#else
-/* ---- overrides (exported, see suxty.exports) ------------------------------------------------ */
-
-/* The input plugin's joystick for an N64 player is a *virtual* pad (remap.c): the N64 state computed from the
- * player's mapping and the real pad.  suxty's own polling (bypass) always sees the real device. */
-
-void SDL_JoystickUpdate(void)
-{
-    resolve();
-    if (real_update != NULL)
-        real_update();
-    if (l_bypass == 0)
-    {
-        if (l_enabled)
-        {
-            uint32_t d[PAD_MAX_PADS + 1];
-            pad_read_digital(d);
-            inputfilter_update(d);
-        }
-        remap_update();
-    }
-}
-
-Uint8 SDL_JoystickGetButton(SDL_Joystick *joystick, int button)
-{
-    int p;
-    if (l_bypass == 0 && (p = remap_player_for(joystick)) >= 0)
-        return (Uint8) remap_virtual_button(p, button);
-    return phys_button(joystick, button);
-}
-
-Sint16 SDL_JoystickGetAxis(SDL_Joystick *joystick, int axis)
-{
-    int p;
-    if (l_bypass == 0 && (p = remap_player_for(joystick)) >= 0)
-        return (Sint16) remap_virtual_axis(p, axis);
-    return phys_axis(joystick, axis);
-}
-
-Uint8 SDL_JoystickGetHat(SDL_Joystick *joystick, int hat)
-{
-    if (l_bypass == 0 && remap_player_for(joystick) >= 0)
-        return SDL_HAT_CENTERED;
-    return phys_hat(joystick, hat);
-}
-#endif /* !SUXTY_PLUGIN */

@@ -23,9 +23,7 @@
  *
  * menu_frame() draws one frame and returns what the user chose.  It never
  * talks to the core itself; session.c turns the result into core commands.
- * That keeps the menu free of threading concerns, and later milestones add
- * pages (save carousel, remap UI, per-game profiles) without touching the
- * session/video plumbing.
+ * That keeps the menu free of threading concerns.
  */
 
 #ifndef MENU_H
@@ -37,21 +35,15 @@ typedef enum {
     MENU_NONE = 0,     /* stay in the menu */
     MENU_RESUME,       /* close the menu, continue the game */
     MENU_RESET,        /* hard-reset (power cycle) the emulated console, then continue */
-    MENU_QUIT,         /* stop emulation and exit */
-    MENU_SAVE_STATE,   /* save to menu_action_slot(); the session re-opens the menu when the save is done */
-    MENU_LOAD_STATE,   /* load menu_action_slot(), then continue */
-    MENU_RESTART,      /* auto-save, quit and start the game again with --resume (applies launch-time options) */
-    MENU_RESET_SOFT    /* soft-reset: like pressing the console's reset button, RDRAM is kept */
+    MENU_RESET_SOFT,   /* soft-reset: like pressing the console's reset button, RDRAM is kept */
+    MENU_QUIT,         /* stop emulation (saving the auto slot first if that is on) */
+    MENU_SAVE_STATE,   /* save to menu_action_slot() and close the menu */
+    MENU_LOAD_STATE    /* load menu_action_slot() and close the menu */
 } menu_result;
 
 void        menu_set_game_name(const char *name);
 void        menu_set_quit_saves(int saves);        /* the quit confirmation mentions the auto-save */
 void        menu_open(int current_slot);           /* back to the top page */
-/* Open straight on the save-state carousel, showing a status message (kind > 0 good, < 0 error).  With busy,
- * show "Saving slot N..." until menu_busy_done(). */
-void        menu_open_states(int current_slot, int busy, const char *msg, int kind);
-void        menu_busy_done(const char *msg, int kind);
-int         menu_busy(void);
 int         menu_action_slot(void);                /* for MENU_SAVE_STATE / MENU_LOAD_STATE */
 int         menu_selected_slot(void);              /* the carousel's slot (0-9), -1 if the auto slot is selected */
 /* `pressed`: new presses this frame (with auto-repeat on the D-pad); `held`: everything held now */

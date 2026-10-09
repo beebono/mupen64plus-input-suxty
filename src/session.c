@@ -19,7 +19,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-#include <signal.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -28,16 +28,19 @@
 
 #include <SDL.h>
 
+#include "audio.h"
+#include "autosave.h"
 #include "cfg.h"
 #include "core_interface.h"
 #include "debug.h"
+#include "filewatch.h"
+#include "foir_if.h"
 #include "gl.h"
 #include "inputfilter.h"
 #include "m64p_types.h"
 #include "main.h"
 #include "menu.h"
 #include "pad.h"
-#include "profile.h"
 #include "remap.h"
 #include "session.h"
 #include "states.h"
@@ -46,143 +49,98 @@
 
 /* See the threading notes in session.h. */
 
-static volatile sig_atomic_t l_stop_requested;  /* number of SIGINT/SIGTERM received */
 static SDL_atomic_t  l_menu_open;               /* 1 while the nested menu loop runs */
 static SDL_threadID  l_menu_thread;
-static volatile int  l_emu_state = M64EMU_STOPPED;
 static int           l_stop_sent;
 static uint32_t      l_prev_held;
 static unsigned      l_frames;
 
 #define FRAME_MS 16
 
-/* ---- save/load jobs --------------------------------------------------------------------------- */
+/* ---- save / load: fire and forget ------------------------------------------------------------------ */
 
-/* The core executes state jobs from its interrupt handler, i.e. only while the emulator runs, and a save
- * finishes later on the core's worker thread.  A job therefore outlives the call that queued it: it is
- * tracked here and completed from the frame hook when the core reports M64CORE_STATE_SAVECOMPLETE /
- * LOADCOMPLETE (session_core_state(), possibly on another thread; it only stores the result). */
-typedef enum { JOB_NONE = 0, JOB_SAVE, JOB_LOAD } job_kind;
-
-#define SAVE_TIMEOUT_MS 30000u
-#define LOAD_TIMEOUT_MS 10000u
-#define MENU_REOPEN_FRAMES 3        /* let the core take its snapshot before the menu pauses it again */
+/* The core executes state commands from its interrupt handler, i.e. only while the emulator runs, and writes a save on
+ * a worker thread.  suxty sends the command and does not track it: an inotify watch on the state directory (taken
+ * before the command, polled once per frame; filewatch.h) reports the moment the worker closes the file, and a save is
+ * "not written" if that has not happened after SAVE_WAIT_MS.  A load is sent and left to the core. */
+#define SAVE_WAIT_MS 5000u
 
 static struct {
-    volatile int kind;              /* job_kind; written by the emulation thread only */
-    int          slot;              /* 0-9, or STATES_AUTO_SLOT */
-    int          from_menu;         /* re-open the menu (busy page) when the save is done */
-    int          quit_after;        /* stop the emulator when done (auto-save on quit) */
-    int          resume;            /* a load issued by --resume */
-    int          pj64;              /* a load of a Project64 state */
-    unsigned     frames;            /* frames presented since the job was issued */
-    uint32_t     started;           /* SDL ticks of the first poll (0 = not yet) */
-    uint32_t     cb_seen;           /* SDL ticks when the core first said "save complete" */
-    char         tmp[PATH_MAX];     /* auto-save: file the core writes, renamed over `dest` on success */
-    char         dest[PATH_MAX];
-#ifdef SUXTY_PLUGIN
-    /* a plugin gets neither the core's state callback nor its status messages (the front-end owns both), so a save
-     * is judged from the file: it differs from before the job and its size has stopped changing */
-    int          pre_exists;
-    off_t        pre_size;
-    struct timespec pre_mtime;
-    off_t        last_size;
-    uint32_t     stable_since;
-#endif
-} l_job;
+    int             active;
+    int             slot;                /* 0-9, or STATES_AUTO_SLOT */
+    int             quit_after;          /* stop the emulator once the file is written (auto slot on quit) */
+    int             rotated;             /* the old auto file was moved to a backup before this save */
+    char            path[PATH_MAX];
+    filewatch       fw;
+    uint32_t        t0;
+} l_save;
 
-#ifdef SUXTY_PLUGIN
-/* the file a running save job writes (tmp file for the auto slot, the slot's file otherwise) */
-static int job_file(char *path, size_t size)
-{
-    if (l_job.slot == STATES_AUTO_SLOT)
-        return snprintf(path, size, "%s", l_job.tmp) > 0 && l_job.tmp[0] ? 0 : -1;
-    return states_slot_path(l_job.slot, path, size);
-}
-#endif
-static SDL_atomic_t l_job_result;   /* 0 pending, 1 success, 2 failure (from the state callback) */
-
-/* "Is the file on disk yet?"  The state callback is not enough for a save: depending on the core version,
- * M64CORE_STATE_SAVECOMPLETE is sent as soon as the save has been *queued* (the Mupen64Plus 2.5.9 core that
- * ROCKNIX ships) or when the worker thread has finished writing (current core).  Both versions have that
- * worker thread announce the outcome with a status message, which reaches us through the debug callback
- * (session_core_message()): "Saved state to: <file name>", or "Could not open/write ... state file: <path>".
- * A save job is therefore done when its own file name shows up in one of those messages. */
-static SDL_mutex   *l_msg_lock;
-static char         l_expect_name[300];          /* file name (no directory) the running save job waits for */
-static SDL_atomic_t l_msg_result;                /* 0 pending, 1 written, 2 write failed */
+/* startup check of the auto-save (see autosave.h): the toast waits for the first frames, when it can be drawn */
+static char         l_startup_toast[96];
+static int          l_startup_toast_kind;
 
 static int  l_quitting;             /* quit sequence in progress: hotkeys are off */
-static int  l_quit_pending;         /* quit as soon as the running job is done */
-static int  l_restart;              /* the quit in progress is a restart (auto-save is then forced) */
 static int  l_ff_on;
 static int  l_ff_saved_factor = 100;
 
 /* fast-forward + hotkey bookkeeping */
 static uint32_t l_quit_since;
 
-void session_request_stop(void)
-{
-    l_stop_requested++;
-}
-
-void session_core_state(m64p_core_param param, int value)
-{
-    /* Called synchronously from whichever thread changed the state.  Only record things here; never call
-     * back into the core or the menu from this callback. */
-    if (param == M64CORE_EMU_STATE)
-        l_emu_state = value;
-    else if (param == M64CORE_STATE_SAVECOMPLETE && l_job.kind == JOB_SAVE)
-        SDL_AtomicSet(&l_job_result, value ? 1 : 2);
-    else if (param == M64CORE_STATE_LOADCOMPLETE && l_job.kind == JOB_LOAD)
-        SDL_AtomicSet(&l_job_result, value ? 1 : 2);
-}
-
-/* Debug/status messages from the core (any thread). */
-void session_core_message(int level, const char *message)
-{
-    int res = 0;
-    if (level != M64MSG_STATUS || message == NULL || l_msg_lock == NULL)
-        return;
-    if (strncmp(message, "Saved state to: ", 16) == 0)
-        res = 1;
-    else if (strncmp(message, "Could not open state file: ", 27) == 0 ||
-             strncmp(message, "Could not write data to state file: ", 36) == 0)
-        res = 2;
-    if (res == 0)
-        return;
-    SDL_LockMutex(l_msg_lock);
-    if (l_expect_name[0] != 0 && strstr(message, l_expect_name) != NULL)
-        SDL_AtomicSet(&l_msg_result, res);
-    SDL_UnlockMutex(l_msg_lock);
-}
-
-static void expect_file(const char *path)
-{
-    const char *base = path != NULL ? strrchr(path, '/') : NULL;
-    base = base != NULL ? base + 1 : path;
-    SDL_LockMutex(l_msg_lock);
-    snprintf(l_expect_name, sizeof(l_expect_name), "%.*s", (int) sizeof(l_expect_name) - 1, base ? base : "");
-    SDL_AtomicSet(&l_msg_result, 0);
-    SDL_UnlockMutex(l_msg_lock);
-}
-
-int session_restart_requested(void)
-{
-    return l_restart;
-}
-
 int session_menu_blocks_this_thread(void)
 {
     return SDL_AtomicGet(&l_menu_open) && SDL_ThreadID() != l_menu_thread;
 }
 
+/* Game start: is the auto-save we left last time good?  suxty never loads it (the launcher does, with --savestate, later
+ * than this: the core opens the file when the emulator runs), so the file is checked and, if damaged, replaced by the
+ * previous one right here.  See autosave.h. */
+static void autosave_startup_check(void)
+{
+    char path[PATH_MAX], ss[PATH_MAX];
+    autosave_report rep;
+    int launcher;
+    uint32_t t0 = SDL_GetTicks();
+
+    l_startup_toast[0] = 0;
+    if (states_slot_path(STATES_AUTO_SLOT, path, sizeof(path)) != 0)
+        return;
+    autosave_reconcile(path, &rep);
+    DebugMessage(M64MSG_VERBOSE, "auto-save check took %u ms", (unsigned) (SDL_GetTicks() - t0));
+    ss[0] = 0;
+    launcher = autosave_cmdline_savestate(ss, sizeof(ss));
+    if (launcher)
+        DebugMessage(M64MSG_INFO, "auto-save: the launcher loads '%s' (--savestate)%s", ss, strcmp(ss, path) == 0 ? ", the auto-save" : "");
+    switch (rep.status)
+    {
+        case AUTOSAVE_GOOD:
+            DebugMessage(M64MSG_INFO, "auto-save '%s' is valid; %d backup(s) removed", path, rep.removed);
+            break;
+        case AUTOSAVE_RESTORED:
+            DebugMessage(M64MSG_WARNING, "auto-save '%s' was %s (%s); restored the previous one from '%s'", path,
+                         rep.was_missing ? "missing" : "damaged", rep.why, rep.from);
+            snprintf(l_startup_toast, sizeof(l_startup_toast), rep.was_missing ? "Auto-save was missing;\nprevious one restored"
+                                                                               : "Auto-save was damaged;\nprevious one restored");
+            l_startup_toast_kind = TOAST_ERROR;
+            break;
+        case AUTOSAVE_BAD:
+            DebugMessage(M64MSG_ERROR, "auto-save '%s' is %s (%s) and no backup is usable", path, rep.was_missing ? "missing" : "damaged", rep.why);
+            if (!rep.was_missing)
+            {
+                snprintf(l_startup_toast, sizeof(l_startup_toast), "Auto-save is damaged");
+                l_startup_toast_kind = TOAST_ERROR;
+            }
+            break;
+        case AUTOSAVE_ABSENT:
+            break;
+    }
+}
+
 int session_init(void)
 {
-    l_msg_lock = SDL_CreateMutex();
     if (pad_init() != 0)
         return -1;
     remap_init();
+    autosave_startup_check();
     return 0;
 }
 
@@ -192,7 +150,7 @@ static int emu_state(void)
 {
     int v = 0;
     if ((*CoreDoCommand)(M64CMD_CORE_STATE_QUERY, M64CORE_EMU_STATE, &v) != M64ERR_SUCCESS)
-        return l_emu_state;
+        return M64EMU_STOPPED;
     return v;
 }
 
@@ -264,12 +222,14 @@ void session_shutdown(void)
     ff_set(0);
     remap_shutdown();
     pad_shutdown();
-    if (l_msg_lock != NULL)
-    {
-        SDL_mutex *m = l_msg_lock;
-        l_msg_lock = NULL;
-        SDL_DestroyMutex(m);
-    }
+    if (l_save.active)
+        filewatch_stop(&l_save.fw);
+    memset(&l_save, 0, sizeof(l_save));
+    l_startup_toast[0] = 0;
+    l_quitting = 0;
+    l_stop_sent = 0;
+    l_frames = 0;
+    l_prev_held = 0;
 }
 
 /* ---- screenshots (test hook) ---------------------------------------------------------------- */
@@ -308,325 +268,167 @@ static void draw_overlay(int want_shot)
         save_shot(shot, w, h);
 }
 
-/* ---- jobs -------------------------------------------------------------------------------------- */
+/* ---- save / load ----------------------------------------------------------------------------- */
 
-static int job_busy(void)
-{
-    return l_job.kind != JOB_NONE;
-}
-
-static void job_clear(void)
-{
-    l_job.kind = JOB_NONE;
-}
-
-static int start_save(int slot, int from_menu, int quit_after)
+/* Sends M64CMD_STATE_SAVE for a slot (or the auto slot).  Returns 0 if the command was sent. */
+static int start_save(int slot, int quit_after)
 {
     char why[64];
     m64p_error r;
 
-    if (job_busy())
+    if (l_save.active)
+    {
+        toast_show(TOAST_ERROR, "Busy, try again");
         return -1;
+    }
     if (states_check_writable(why, sizeof(why)) != 0)
     {
         DebugMessage(M64MSG_ERROR, "can't save a state: %s", why);
         toast_show(TOAST_ERROR, "Can't save: %s", why);
         return -1;
     }
-    memset((void *) &l_job, 0, sizeof(l_job));
-    l_job.slot = slot;
-    l_job.from_menu = from_menu;
-    l_job.quit_after = quit_after;
-#ifdef SUXTY_PLUGIN
-    if (slot == STATES_AUTO_SLOT && states_slot_path(slot, l_job.dest, sizeof(l_job.dest)) == 0)
-        snprintf(l_job.tmp, sizeof(l_job.tmp), "%s.tmp", l_job.dest);
-    {
-        char path[PATH_MAX];
-        struct stat st;
-        if (job_file(path, sizeof(path)) == 0 && stat(path, &st) == 0)
-        {
-            l_job.pre_exists = 1;
-            l_job.pre_size = st.st_size;
-            l_job.pre_mtime = st.st_mtim;
-        }
-    }
-#endif
-    SDL_AtomicSet(&l_job_result, 0);
-    l_job.kind = JOB_SAVE;
+    memset(&l_save, 0, sizeof(l_save));
+    l_save.slot = slot;
+    l_save.quit_after = quit_after;
+    if (states_slot_path(slot, l_save.path, sizeof(l_save.path)) != 0)
+        return -1;
     if (slot == STATES_AUTO_SLOT)
     {
-        if (states_slot_path(slot, l_job.dest, sizeof(l_job.dest)) != 0 ||
-            (size_t) snprintf(l_job.tmp, sizeof(l_job.tmp), "%s.tmp", l_job.dest) >= sizeof(l_job.tmp))
-        {
-            job_clear();
-            return -1;
-        }
-        unlink(l_job.tmp);
-        expect_file(l_job.tmp);
-        r = (*CoreDoCommand)(M64CMD_STATE_SAVE, 1, l_job.tmp);        /* 1 = Mupen64Plus format */
+        /* the core rewrites the file in place: keep the previous auto-save aside until the next game start has
+         * seen that the new one is good (autosave.h) */
+        int rot = autosave_rotate(l_save.path);
+        if (rot > 0)
+            l_save.rotated = 1;
+        else if (rot < 0)
+            DebugMessage(M64MSG_WARNING, "couldn't move the old auto-save aside (%s); writing it in place", strerror(errno));
     }
-    else
-    {
-        char path[PATH_MAX];
-        set_slot(slot);
-        if (states_slot_path(slot, path, sizeof(path)) == 0)
-            expect_file(path);
-        r = (*CoreDoCommand)(M64CMD_STATE_SAVE, 1, NULL);
-    }
+    filewatch_start(&l_save.fw, l_save.path, 0);                 /* before the command: the worker may be quick */
+    if (!filewatch_uses_inotify(&l_save.fw))
+        DebugMessage(M64MSG_WARNING, "no inotify here; judging the save by the file's time and size");
+    set_slot(slot);
+    r = (*CoreDoCommand)(M64CMD_STATE_SAVE, 1, l_save.path);        /* 1 = Mupen64Plus format, to this file */
     if (r != M64ERR_SUCCESS)
     {
         DebugMessage(M64MSG_ERROR, "M64CMD_STATE_SAVE failed (%d)", (int) r);
-        job_clear();
+        toast_show(TOAST_ERROR, "Save failed");
+        filewatch_stop(&l_save.fw);
+        if (l_save.rotated)
+            autosave_unrotate(l_save.path);
+        l_save.rotated = 0;
         return -1;
     }
-    DebugMessage(M64MSG_INFO, "saving state to %s", slot == STATES_AUTO_SLOT ? "the auto slot" : "slot");
+    l_save.active = 1;
+    l_save.t0 = SDL_GetTicks();
+    if (slot == STATES_AUTO_SLOT)
+        toast_show(TOAST_INFO, "Saving auto slot...");
+    else
+        toast_show(TOAST_INFO, "Saving slot %d...", slot);
+    DebugMessage(M64MSG_INFO, "saving state to '%s'", l_save.path);
     return 0;
 }
 
-static int start_load(int slot, int resume)
+static void save_failed(const char *what)
 {
+    int quit = l_save.quit_after;
+    l_save.active = 0;
+    filewatch_stop(&l_save.fw);
+    toast_show(TOAST_ERROR, "Save not written");
+    DebugMessage(M64MSG_ERROR, "the state file '%s' %s", l_save.path, what);
+    if (l_save.rotated && autosave_unrotate(l_save.path))        /* nothing came of it: the old auto-save is back */
+        DebugMessage(M64MSG_INFO, "the previous auto-save was put back");
+    l_save.rotated = 0;
+    if (quit)
+        l_quitting = 0;                /* stay in the game rather than lose progress: Quit again to retry */
+}
+
+/* once per presented frame: has the worker finished the file? */
+static void save_poll(void)
+{
+    struct stat st;
+    if (!l_save.active)
+        return;
+    if (filewatch_poll(&l_save.fw))
+    {
+        /* closed by the writer.  The core's own status message follows within microseconds; the emulator is only
+         * stopped on a later frame, long before the core tears its configuration down. */
+        int quit = l_save.quit_after;
+        if (stat(l_save.path, &st) != 0 || st.st_size <= 0)
+        {
+            save_failed("is empty (the write failed)");
+            return;
+        }
+        int ino = filewatch_uses_inotify(&l_save.fw);
+        l_save.active = 0;
+        filewatch_stop(&l_save.fw);
+        toast_show(TOAST_OK, "Saved");
+        DebugMessage(M64MSG_INFO, "state file written: %s (%s)", l_save.path, ino ? "inotify" : "polled");
+        if (quit)
+            emu_stop();
+        return;
+    }
+    if (SDL_GetTicks() - l_save.t0 >= SAVE_WAIT_MS)
+    {
+        char what[64];
+        snprintf(what, sizeof(what), "was not written within %u ms", SAVE_WAIT_MS);
+        save_failed(what);
+    }
+}
+
+/* Sends M64CMD_STATE_LOAD and leaves the rest to the core. */
+static int start_load(int slot)
+{
+    state_info si;
     char path[PATH_MAX];
     m64p_error r;
 
-    if (job_busy())
+    if (slot < 0 || slot >= STATES_NUM_SLOTS)        /* the auto slot is loaded by the launcher (--savestate), never here */
         return -1;
-    memset((void *) &l_job, 0, sizeof(l_job));
-    l_job.slot = slot;
-    l_job.resume = resume;
-    SDL_AtomicSet(&l_job_result, 0);
-    l_job.kind = JOB_LOAD;
-    if (slot == STATES_AUTO_SLOT)
+    states_stat(slot, &si);
+    if (!si.exists)
     {
-        if (states_slot_path(slot, path, sizeof(path)) != 0)
-        {
-            job_clear();
-            return -1;
-        }
+        toast_show(TOAST_ERROR, "Slot %d is empty", slot);
+        return -1;
+    }
+    set_slot(slot);
+    if (si.pj64 && states_pj_path(slot, path, sizeof(path)) == 0)
+    {
+        /* the slot's newest state is a Project64 one: the core's slot load would prefer an existing .st, so ask
+         * for the file itself (it detects the format from the file) */
+        DebugMessage(M64MSG_INFO, "loading the Project64 state '%s'", path);
         r = (*CoreDoCommand)(M64CMD_STATE_LOAD, 0, path);
     }
     else
-    {
-        state_info si;
-        states_stat(slot, &si);
-        set_slot(slot);
-        if (si.pj64 && states_pj_path(slot, path, sizeof(path)) == 0)
-        {
-            /* the slot's newest state is a Project64 one: the core's slot load would prefer an existing .st, so ask
-             * for the file itself (it detects the format from the file) */
-            l_job.pj64 = 1;
-            DebugMessage(M64MSG_INFO, "loading the Project64 state '%s'", path);
-            r = (*CoreDoCommand)(M64CMD_STATE_LOAD, 0, path);
-        }
-        else
-            r = (*CoreDoCommand)(M64CMD_STATE_LOAD, 0, NULL);
-    }
+        r = (*CoreDoCommand)(M64CMD_STATE_LOAD, 0, NULL);
     if (r != M64ERR_SUCCESS)
     {
         DebugMessage(M64MSG_ERROR, "M64CMD_STATE_LOAD failed (%d)", (int) r);
-        job_clear();
+        toast_show(TOAST_ERROR, "Load failed");
         return -1;
     }
+    toast_show(TOAST_INFO, "Loading slot %d...", slot);
     return 0;
 }
 
-static void begin_quit(void);
-
-/* Polls the running job.  Returns 1 when it finished (or timed out) and fills msg/kind (kind > 0 good,
- * < 0 error).  The caller decides how to show the message. */
-static int job_poll(char *msg, size_t msgsize, int *kind)
-{
-    int res;
-    uint32_t now = SDL_GetTicks();
-
-    if (l_job.kind == JOB_NONE)
-        return 0;
-    if (l_job.started == 0)
-        l_job.started = now ? now : 1;
-#ifdef SUXTY_PLUGIN
-    res = 0;
-    if (l_job.kind == JOB_SAVE)
-    {
-        char path[PATH_MAX];
-        struct stat st;
-        if (job_file(path, sizeof(path)) == 0 && stat(path, &st) == 0 && st.st_size > 0)
-        {
-            int changed = !l_job.pre_exists || st.st_size != l_job.pre_size ||
-                          st.st_mtim.tv_sec != l_job.pre_mtime.tv_sec || st.st_mtim.tv_nsec != l_job.pre_mtime.tv_nsec;
-            if (st.st_size != l_job.last_size)
-            {
-                l_job.last_size = st.st_size;
-                l_job.stable_since = 0;
-            }
-            else if (changed)
-            {
-                if (l_job.stable_since == 0)
-                    l_job.stable_since = now ? now : 1;
-                else if (now - l_job.stable_since >= 400u)
-                    res = 1;
-            }
-        }
-    }
-    else
-        res = l_job.frames >= 3 ? 1 : 0;       /* the core runs the load at the next VI interrupt; failures only show in its log */
-    if (0)
-#else
-    res = SDL_AtomicGet(&l_job_result);
-    if (l_job.kind == JOB_SAVE)
-#endif
-    {
-        int m = SDL_AtomicGet(&l_msg_result);
-        if (m != 0)
-            res = m;                                 /* the writer announced the outcome */
-        else if (res == 1)
-        {
-            /* "queued" (or "written", depending on the core version) but no word from the writer yet.  If the
-             * announcement never comes (a core that words it differently), settle for a quiet, non-empty file. */
-            res = 0;
-            if (l_job.cb_seen == 0)
-                l_job.cb_seen = now ? now : 1;
-            else if (now - l_job.cb_seen > 8000u)
-            {
-                char path[PATH_MAX];
-                struct stat st;
-                if ((l_job.slot == STATES_AUTO_SLOT ? snprintf(path, sizeof(path), "%s", l_job.tmp) > 0
-                                                    : states_slot_path(l_job.slot, path, sizeof(path)) == 0) &&
-                    stat(path, &st) == 0 && st.st_size > 0 && time(NULL) - st.st_mtime >= 2)
-                {
-                    DebugMessage(M64MSG_WARNING, "the core never reported the finished state file; assuming it is complete");
-                    res = 1;
-                }
-            }
-        }
-    }
-    if (res != 0 && now - l_job.started < (uint32_t) dbg_job_delay())
-        return 0;                                    /* test hook: make the "Saving..." page observable */
-    if (res == 0)
-    {
-        uint32_t limit = l_job.kind == JOB_SAVE ? SAVE_TIMEOUT_MS : LOAD_TIMEOUT_MS;
-        if (now - l_job.started < limit)
-            return 0;
-        res = 2;
-        DebugMessage(M64MSG_ERROR, "state %s timed out", l_job.kind == JOB_SAVE ? "save" : "load");
-    }
-
-    if (l_job.kind == JOB_SAVE)
-    {
-        const char *what = l_job.slot == STATES_AUTO_SLOT ? "auto-save" : NULL;
-        if (l_job.slot == STATES_AUTO_SLOT)
-        {
-            if (res == 1 && rename(l_job.tmp, l_job.dest) != 0)
-            {
-                DebugMessage(M64MSG_ERROR, "couldn't move the auto-save into place");
-                res = 2;
-            }
-            if (res != 1)
-                unlink(l_job.tmp);
-        }
-        if (res == 1)
-        {
-            if (what)
-                snprintf(msg, msgsize, "Auto-saved");
-            else
-                snprintf(msg, msgsize, "Saved slot %d", l_job.slot);
-            *kind = 1;
-        }
-        else
-        {
-            if (what)
-                snprintf(msg, msgsize, "Auto-save failed");
-            else
-                snprintf(msg, msgsize, "Saving slot %d failed", l_job.slot);
-            *kind = -1;
-        }
-    }
-    else
-    {
-        if (res == 1)
-        {
-            if (l_job.resume)
-                snprintf(msg, msgsize, "Resumed from auto-save");
-            else if (l_job.slot == STATES_AUTO_SLOT)
-                snprintf(msg, msgsize, "Loaded auto-save");
-            else
-                snprintf(msg, msgsize, l_job.pj64 ? "Loaded slot %d (PJ64)" : "Loaded slot %d", l_job.slot);
-            *kind = 1;
-        }
-        else
-        {
-            snprintf(msg, msgsize, l_job.slot == STATES_AUTO_SLOT ? "Loading the auto-save failed" : "Loading slot %d failed", l_job.slot);
-            *kind = -1;
-        }
-    }
-    DebugMessage(res == 1 ? M64MSG_INFO : M64MSG_ERROR, "%s", msg);
-
-    if (l_job.quit_after)
-    {
-        if (l_restart && *kind <= 0)
-        {
-            /* no auto-save, nothing to come back to: stay in the game instead of restarting into a fresh boot */
-            l_restart = 0;
-            l_quitting = 0;
-            toast_show(TOAST_ERROR, "Restart cancelled: couldn't save");
-        }
-        else
-            emu_stop();
-    }
-    job_clear();
-    if (l_quit_pending)
-    {
-        l_quit_pending = 0;
-        begin_quit();
-    }
-    return 1;
-}
-
-/* Quit, saving the auto slot first if that is enabled.  The game keeps running until the save is done. */
+/* Quit, saving the auto slot first if that is enabled.  The game keeps running until the file is written. */
 static void begin_quit(void)
 {
     if (l_quitting)
         return;
-    if (job_busy())
+    if (l_save.active)
     {
-        l_quit_pending = 1;           /* a save/load is in flight; quit right after it */
+        toast_show(TOAST_ERROR, "Busy, try again");
         return;
     }
     l_quitting = 1;
     ff_set(0);
-    if ((g_cfg.autosave_on_quit || l_restart) && emu_state() == M64EMU_RUNNING)
+    if (g_cfg.autosave_on_quit && emu_state() == M64EMU_RUNNING)
     {
-        if (start_save(STATES_AUTO_SLOT, 0, 1) == 0)
-        {
-            toast_show(TOAST_INFO, l_restart ? "Restarting..." : "Saving...");
+        if (start_save(STATES_AUTO_SLOT, 1) == 0)
             return;
-        }
-        if (l_restart)
-        {
-            l_restart = 0;
-            l_quitting = 0;
-            toast_show(TOAST_ERROR, "Restart cancelled: couldn't save");
-            return;
-        }
-        DebugMessage(M64MSG_WARNING, "auto-save failed to start; quitting without it");
+        l_quitting = 0;                    /* couldn't even start: stay in the game, the toast says why */
+        return;
     }
     emu_stop();
-}
-
-int session_resume(void)
-{
-    state_info si;
-    states_stat(STATES_AUTO_SLOT, &si);
-    if (!si.exists)
-    {
-        DebugMessage(M64MSG_INFO, "--resume: no auto-save yet; starting normally");
-        return 0;
-    }
-    if (start_load(STATES_AUTO_SLOT, 1) != 0)
-    {
-        DebugMessage(M64MSG_WARNING, "--resume: couldn't queue the auto-save; starting normally");
-        return -1;
-    }
-    DebugMessage(M64MSG_INFO, "--resume: loading the auto-save");
-    return 1;
 }
 
 /* ---- hotkeys --------------------------------------------------------------------------------- */
@@ -664,33 +466,12 @@ static void announce_slot(int slot)
 
 static void do_quick_save(void)
 {
-    int slot = cur_slot();
-    if (job_busy())
-    {
-        toast_show(TOAST_ERROR, "Busy, try again");
-        return;
-    }
-    if (start_save(slot, 0, 0) == 0)
-        toast_show(TOAST_INFO, "Saving slot %d...", slot);
+    start_save(cur_slot(), 0);
 }
 
 static void do_quick_load(void)
 {
-    int slot = cur_slot();
-    state_info si;
-    if (job_busy())
-    {
-        toast_show(TOAST_ERROR, "Busy, try again");
-        return;
-    }
-    states_stat(slot, &si);
-    if (!si.exists)
-    {
-        toast_show(TOAST_ERROR, "Slot %d is empty", slot);
-        return;
-    }
-    if (start_load(slot, 0) != 0)
-        toast_show(TOAST_ERROR, "Loading slot %d failed", slot);
+    start_load(cur_slot());
 }
 
 /* Evaluates the combos for one frame.  Returns 1 if the menu should open. */
@@ -801,15 +582,8 @@ static void drain_sdl_events(int *quit)
             *quit = 1;
 }
 
-typedef struct {
-    int  busy;            /* a save is in flight: show "Saving slot N..." */
-    char msg[64];         /* status line */
-    int  kind;
-    int  states;          /* open on the save-state carousel */
-} menu_entry;
-
 /* returns 1 if the menu ran (and the frame was presented here), 0 if it couldn't open */
-static int run_menu(const menu_entry *entry)
+static int run_menu(void)
 {
     int w = 0, h = 0;
     menu_result result = MENU_NONE;
@@ -850,10 +624,8 @@ static int run_menu(const menu_entry *entry)
     entered_ui = 1;
     ugl_background_upload();
     menu_set_quit_saves(g_cfg.autosave_on_quit);
-    if (entry != NULL && entry->states)
-        menu_open_states(cur_slot(), entry->busy, entry->msg, entry->kind);
-    else
-        menu_open(cur_slot());
+    fif_discover();                                  /* foir loaded after we looked? (no-op once found) */
+    menu_open(cur_slot());
     inputfilter_force(1);
     DebugMessage(M64MSG_VERBOSE, "menu opened at frame %u (%dx%d, frame capture %u ms)", l_frames, w, h, (unsigned) t_capture);
 
@@ -863,7 +635,7 @@ static int run_menu(const menu_entry *entry)
 
     /* 3. the menu loop: we own the window and the (private) GL context until it ends */
     t_frame = SDL_GetTicks();
-    while (!quit && !l_stop_requested && emu_state() != M64EMU_STOPPED)
+    while (!quit && emu_state() != M64EMU_STOPPED)
     {
         uint32_t held, now;
         float brightness = 1.0f - (float) g_cfg.dim_percent / 100.0f;
@@ -879,26 +651,15 @@ static int run_menu(const menu_entry *entry)
         now = SDL_GetTicks();
         pad_tracker_update(&tr, held, now);
 
-        {
-            char msg[64];
-            int kind = 0;
-            if (job_poll(msg, sizeof(msg), &kind) && menu_busy())
-                menu_busy_done(msg, kind);
-        }
-
         if (dt.kill)
         {
             quit = 1;
-        }
-        else if (dt.restart)
-        {
-            result = MENU_RESTART;
         }
         else if (dt.quit)
         {
             result = MENU_QUIT;
         }
-        else if (dt.toggle_menu || (!menu_busy() && combo_edge(held, loop_prev) && !(consumed = menu_combo_pressed(held))))
+        else if (dt.toggle_menu || (combo_edge(held, loop_prev) && !(consumed = menu_combo_pressed(held))))
         {
             result = MENU_RESUME;
         }
@@ -908,7 +669,7 @@ static int run_menu(const menu_entry *entry)
             ugl_begin(w, h);
             ugl_background_draw(w, h, brightness);
             /* the buttons that confirmed a new menu combo are not also presses on the page underneath */
-            result = menu_frame(w, h, (menu_busy() || consumed) ? 0 : tr.pressed, (menu_busy() || consumed) ? 0 : held);
+            result = menu_frame(w, h, consumed ? 0 : tr.pressed, consumed ? 0 : held);
             if (dt.shot)
                 shot = ugl_readback(w, h);        /* composited back buffer, before it is presented */
             ugl_end();
@@ -933,7 +694,7 @@ static int run_menu(const menu_entry *entry)
 
     /* 4. leaving: show one clean (undimmed) frame so the game doesn't resume over a menu.  The buttons that
      *    closed the menu are hidden from the game by the input filter until they are released; if the filter
-     *    is off (or the input plugin bypasses it), keep the frame up until they are, as before. */
+     *    is off, keep the frame up until they are. */
     {
         uint32_t t0 = SDL_GetTicks();
         int wait_release = !(g_cfg.block_game_input);
@@ -960,23 +721,22 @@ static int run_menu(const menu_entry *entry)
     SDL_AtomicSet(&l_menu_open, 0);
 
     /* 5. act on the choice.  Everything below is issued while the core is still paused; the core runs it from
-     *    its own interrupt handler once it executes again (so the job outlives this call; see job_poll()). */
-    if (result == MENU_NONE || result == MENU_RESUME || result == MENU_RESET || result == MENU_RESET_SOFT)
+     *    its own interrupt handler once it executes again. */
+    if (result == MENU_NONE || result == MENU_RESUME || result == MENU_RESET || result == MENU_RESET_SOFT ||
+        result == MENU_SAVE_STATE || result == MENU_LOAD_STATE)
     {
         int sel = menu_selected_slot();
         if (sel >= 0)
             set_slot(sel);               /* the carousel's slot becomes the quick-save slot */
     }
-    if (quit || l_stop_requested > 1)
+    if (quit)
     {
         l_quitting = 1;
         emu_stop();                                  /* clears the pause itself */
         paused_by_us = 0;
     }
-    else if (result == MENU_QUIT || result == MENU_RESTART || l_stop_requested)
+    else if (result == MENU_QUIT)
     {
-        if (result == MENU_RESTART)
-            l_restart = 1;
         /* with auto-save on, the game must run a moment to take the snapshot: resume first */
         if (paused_by_us && emu_state() == M64EMU_PAUSED)
             (*CoreDoCommand)(M64CMD_RESUME, 0, NULL);
@@ -990,20 +750,16 @@ static int run_menu(const menu_entry *entry)
     }
     else if (result == MENU_SAVE_STATE)
     {
-        if (job_busy())
-            toast_show(TOAST_ERROR, "Busy, try again");
-        else if (start_save(menu_action_slot(), 1, 0) != 0)
-            toast_show(TOAST_ERROR, "Saving slot %d failed", menu_action_slot());
+        start_save(menu_action_slot(), 0);
     }
     else if (result == MENU_LOAD_STATE)
     {
-        if (job_busy())
-            toast_show(TOAST_ERROR, "Busy, try again");
-        else if (start_load(menu_action_slot(), 0) != 0)
-            toast_show(TOAST_ERROR, "Loading slot %d failed", menu_action_slot());
+        start_load(menu_action_slot());
     }
     if (paused_by_us && emu_state() == M64EMU_PAUSED)
         (*CoreDoCommand)(M64CMD_RESUME, 0, NULL);
+    if (l_save.active)
+        l_save.t0 = SDL_GetTicks();       /* the core ran no frames while the menu was up: the save's clock starts over */
     DebugMessage(M64MSG_VERBOSE, "menu closed");
     l_prev_held = pad_poll();
     return 1;
@@ -1027,99 +783,48 @@ int session_before_swap(void)
     uint32_t held, now;
     dbg_tick_t dt;
     int open = 0, want_shot = 0;
-    menu_entry entry;
 
     if (SDL_AtomicGet(&l_menu_open))
         return 0;                                    /* re-entrancy guard */
     l_frames++;
     if (l_frames == 3)
-        profile_apply_volume();                      /* the audio plugin is up: this game's volume */
-#ifndef SUXTY_PLUGIN
-    if (l_frames == 300 && remap_health_check() < 0)
     {
-        DebugMessage(M64MSG_WARNING, "the input plugin never read the controller through SDL_JoystickGet*(): "
-                     "the controller remap has no effect with this plugin");
-        toast_show(TOAST_ERROR, "Remap inactive: input plugin bypasses it");
+        audio_apply_volume();                        /* the audio plugin is up: this game's volume */
+        if (l_startup_toast[0] != 0)
+            toast_show((toast_kind) l_startup_toast_kind, "%s", l_startup_toast);
+        l_startup_toast[0] = 0;
     }
-#endif
     now = SDL_GetTicks();
-
-    if (l_stop_requested)
-    {
-        if (l_stop_requested > 1 || !g_cfg.autosave_on_quit)
-            emu_stop();
-        else
-            begin_quit();
-        if (l_stop_sent)
-            return 0;
-    }
 
     dbg_tick(&dt);
     pad_inject(dt.buttons);
     held = pad_poll();
 
-    /* a save/load issued earlier */
-    memset(&entry, 0, sizeof(entry));
-    if (job_busy())
-    {
-        char msg[64];
-        int kind = 0;
-        int from_menu = l_job.from_menu;
-        l_job.frames++;
-        if (job_poll(msg, sizeof(msg), &kind))
-        {
-            if (from_menu)
-            {
-                entry.states = 1;
-                snprintf(entry.msg, sizeof(entry.msg), "%s", msg);
-                entry.kind = kind;
-                open = 2;
-            }
-            else
-                toast_show(kind > 0 ? TOAST_OK : TOAST_ERROR, "%s", msg);
-        }
-        else if (from_menu && l_job.frames >= MENU_REOPEN_FRAMES && !l_quitting)
-        {
-            entry.states = 1;
-            entry.busy = 1;
-            open = 2;
-        }
-    }
+    save_poll();
 
     if (dt.stat)
         DebugMessage(M64MSG_INFO, "stat: frame %u t=%u ms", l_frames, (unsigned) now);
     if (dt.kill)
         emu_stop();
-    if (dt.restart)
-    {
-        l_restart = 1;
-        begin_quit();
-    }
     if (dt.quit)
         begin_quit();
     if (dt.pj_slot >= 0)
         debug_save_pj(dt.pj_slot, dt.pj_zip);
     if (dt.shot)
         want_shot = 1;
-    if (open == 0 && !l_quitting)
+    if (!l_quitting)
     {
         if (dt.toggle_menu || combo_edge(held, l_prev_held))
             open = 1;
         else if (hotkeys_update(held, l_prev_held, now))
             open = 1;
     }
-    else if (open == 0)
+    else
         hotkeys_update(0, 0, now);                   /* keeps fast-forward off while quitting */
     l_prev_held = held;
 
-    if (open)
-    {
-        if (open == 2 || open == 1)
-        {
-            if (run_menu(open == 2 ? &entry : NULL))
-                return 1;
-        }
-    }
+    if (open && run_menu())
+        return 1;
     if (toast_visible())
     {
         draw_overlay(want_shot);

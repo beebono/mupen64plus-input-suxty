@@ -201,7 +201,7 @@ static void set_platform_default_context(const char *force)
 
 static int create_window_and_context(int width, int height, Uint32 wflags, int quiet)
 {
-    l_win = SDL_CreateWindow(l_title ? l_title : "mupen64plus-ui-suxty", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+    l_win = SDL_CreateWindow(l_title ? l_title : "mupen64plus", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
                              width, height, wflags);
     if (l_win == NULL)
     {
@@ -492,7 +492,6 @@ m64p_error video_install(void)
     return CoreOverrideVidExt(&table);
 }
 
-#ifdef SUXTY_PLUGIN
 /* PluginShutdown: stop the core calling into this library (our table's pointers die with the dlclose), and tear the
  * window down if the video plugin never called VidExt_Quit() */
 void video_uninstall(void)
@@ -507,7 +506,6 @@ void video_uninstall(void)
         vx_quit();
     }
 }
-#endif
 
 /* ---- helpers for session.c ------------------------------------------------------------------ */
 

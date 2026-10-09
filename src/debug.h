@@ -19,26 +19,25 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-/* Test hooks.  There is no way to press buttons on a headless test rig, so the
- * session can be driven by a script:
+/* Test hooks.  There is no way to press buttons on a headless test rig, so the session can be driven by a script
+ * through environment variables (read once, at InitiateControllers):
  *
- *   --debug-script "wait300,menu,wait30,shot,down,wait10,shot,b,wait20,quit"
- *   --debug-shot-prefix /path/prefix        (writes prefix-1.png, prefix-2.png ...)
- *   --debug-open-menu-after N               (shorthand for "wait N,menu" first)
+ *   SUXTY_DEBUG_SCRIPT="wait300,menu,wait30,shot,down,wait10,shot,b,wait20,quit"
+ *   SUXTY_DEBUG_SHOT_PREFIX=/path/prefix        (writes prefix-1.png, prefix-2.png ...)
+ *   SUXTY_DEBUG_OPEN_AFTER=N                    (shorthand for "wait N,menu" first)
  *
  * Tokens (comma/space separated), executed one per "tick" (a tick is one game
  * frame presented while playing, or one menu frame while the menu is open):
  *   waitN           do nothing for N ticks
  *   menu            toggle the menu (same as the Select+Start combo)
  *   shot            save the composited back buffer (game frame, or the menu overlay) as PNG
- *   quit            quit like the menu does (auto-saves first if enabled)
+ *   quit            quit like the menu does (saves the auto slot first if enabled)
  *   kill            stop emulation immediately
  *   stat            log the frame counter and clock (to measure frame rates between two stats)
  *   up down left right a b x y l r start select
  *                   press that button for one tick (then release for one tick)
  *   select+r        press several buttons together (e.g. a hotkey combo) for one tick
  *   holdN:select+y  hold the buttons for N ticks
- *   restart         quit like the menu's "Restart game": auto-save, exit, start again with --resume
  *   pjsave:N pjzip:N  write a Project64 state (uncompressed / zip) to slot N's .pjN file with the core itself (to test
  *                   that slots which only exist as PJ64 states are shown and loaded)
  *   cap:button:3    answer the next control-capture prompt with that physical control (button:N, hat:N:up,
@@ -58,7 +57,6 @@ typedef struct {
     int      shot;
     int      quit;
     int      kill;
-    int      restart;
     int      pj_slot;      /* >= 0: save a PJ64 state to this slot ... */
     int      pj_zip;       /* ... zipped */
     int      stat;
@@ -67,8 +65,6 @@ typedef struct {
 } dbg_tick_t;
 
 void dbg_configure(const char *script, const char *shot_prefix, int open_menu_after);
-void dbg_set_job_delay(int ms);      /* --debug-job-delay: pretend save/load jobs take at least this long */
-int  dbg_job_delay(void);
 int  dbg_active(void);
 void dbg_tick(dbg_tick_t *out);
 

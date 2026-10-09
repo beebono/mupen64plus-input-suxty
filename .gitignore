@@ -1,0 +1,16 @@
+# build outputs (projects/unix)
+/projects/unix/_obj*/
+/projects/unix/suxty
+/projects/unix/suxty-*
+*.o
+*.d
+*.so
+
+# test results
+/test-output/
+
+# editors
+.vscode/
+.idea/
+*.swp
+*~

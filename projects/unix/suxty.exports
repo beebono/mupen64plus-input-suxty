@@ -1,0 +1,8 @@
+/* Symbols exported from the suxty executable so that the input plugin (dlopen'ed later) binds to the
+ * input filter's SDL joystick overrides instead of libSDL2's.  See src/inputfilter.h. */
+{
+    SDL_JoystickUpdate;
+    SDL_JoystickGetButton;
+    SDL_JoystickGetAxis;
+    SDL_JoystickGetHat;
+};

@@ -8,8 +8,7 @@ with no keyboard, mouse or config file to edit.
 
 > **Status:** pre-alpha. The plugin is verified on x86_64 (headless, stock ui-console), on the **RG35XX SP** (spruce's patched
 > mupen64plus, foir and Rice) and on the **RK3566 / ROCKNIX** handheld (stock mupen64plus 2.5.9, foir and Rice).
-> (The repository's directory is still called `mupen64plus-ui-suxty`; earlier versions were a stand-alone front-end program,
-> see *History*.)
+> (Earlier versions were a stand-alone front-end program, `mupen64plus-ui-suxty`; see *History*.)
 
 ## What it does
 

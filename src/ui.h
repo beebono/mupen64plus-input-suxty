@@ -1,5 +1,5 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *   mupen64plus-ui-suxty - ui.h
+ *   mupen64plus-input-suxty - ui.h
  *   Mupen64Plus homepage: https://mupen64plus.org/                        *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *

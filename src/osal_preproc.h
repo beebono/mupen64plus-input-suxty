@@ -1,5 +1,5 @@
 /* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *   mupen64plus-ui-suxty - osal_preproc.h                               *
+ *   mupen64plus-input-suxty - osal_preproc.h                            *
  *   Mupen64Plus homepage: https://mupen64plus.org/                        *
  *   Copyright (C) 2009 Richard Goedeken                                   *
  *                                                                         *
@@ -52,7 +52,7 @@
   #if defined(ANDROID)
     #include <android/log.h>
 
-    #define printf(...) __android_log_print(ANDROID_LOG_VERBOSE, "UI-Suxty", __VA_ARGS__)
+    #define printf(...) __android_log_print(ANDROID_LOG_VERBOSE, "Input-Suxty", __VA_ARGS__)
   #endif
 
   #include <limits.h>  // for PATH_MAX

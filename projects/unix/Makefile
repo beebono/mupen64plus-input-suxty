@@ -186,6 +186,17 @@ $(shell $(MKDIR) $(OBJDIRS))
 
 TARGET = suxty$(POSTFIX)
 
+# --- SPIKE: suxty as an input plugin (mupen64plus-input-suxty.so), see src/plugin_api.c --------------------------------
+# Same modules, built with -DSUXTY_PLUGIN into their own object directory; main.c (the front-end) and plugin.c (plugin
+# loading) are not part of it.  Only the Mupen64Plus plugin API is exported (-fvisibility=hidden + EXPORT).
+PLUGIN_TARGET  = mupen64plus-input-suxty$(POSTFIX).so
+PLUGIN_OBJDIR  = _obj-plugin$(POSTFIX)
+PLUGIN_SOURCE  = $(filter-out $(SRCDIR)/main.c $(SRCDIR)/plugin.c $(SRCDIR)/inputfilter.c,$(SOURCE)) $(SRCDIR)/inputfilter.c $(SRCDIR)/plugin_api.c
+PLUGIN_OBJECTS = $(patsubst $(SRCDIR)/%.c, $(PLUGIN_OBJDIR)/%.o, $(PLUGIN_SOURCE))
+$(shell $(MKDIR) $(PLUGIN_OBJDIR))
+PLUGIN_CFLAGS  = -DSUXTY_PLUGIN -fPIC -fvisibility=hidden
+PLUGIN_LDFLAGS = -shared -Wl,-Bsymbolic -Wl,--exclude-libs,ALL
+
 targets:
 	@echo "mupen64plus-ui-suxty makefile."
 	@echo "  Targets:"
@@ -212,8 +223,10 @@ targets:
 
 all: $(TARGET)
 
+plugin: $(PLUGIN_TARGET)
+
 clean:
-	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg
+	$(RM) -r $(OBJDIR) $(PLUGIN_OBJDIR) $(TARGET) $(PLUGIN_TARGET) test_padmap test_cfg
 
 rebuild: clean all
 
@@ -236,6 +249,15 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
 $(TARGET): $(OBJECTS)
 	$(LINK.o) $^ $(LOADLIBES) $(LDLIBS) -o $@
 
+$(PLUGIN_OBJDIR)/%.o: $(SRCDIR)/%.c
+	@$(MKDIR) $(dir $@)
+	$(COMPILE.c) $(PLUGIN_CFLAGS) -o $@ $<
+
+$(PLUGIN_TARGET): $(PLUGIN_OBJECTS)
+	$(Q_LD)$(CC) $(CFLAGS) $(PLUGIN_CFLAGS) $(PLUGIN_LDFLAGS) $^ $(LDLIBS) -o $@
+
+-include $(PLUGIN_OBJECTS:.o=.d)
+
 # unit tests of the N64 mapping model (src/padmap.c); needs only the SDL2 headers
 check: test_padmap test_cfg
 	./test_padmap
@@ -247,4 +269,4 @@ test_padmap: $(SRCDIR)/../tools/test_padmap.c $(SRCDIR)/padmap.c $(SRCDIR)/inifi
 test_cfg: $(SRCDIR)/../tools/test_cfg.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/osal_files_unix.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm
 
-.PHONY: all clean install uninstall targets check
+.PHONY: all plugin clean install uninstall targets check

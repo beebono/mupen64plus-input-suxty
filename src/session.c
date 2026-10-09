@@ -80,7 +80,26 @@ static struct {
     uint32_t     cb_seen;           /* SDL ticks when the core first said "save complete" */
     char         tmp[PATH_MAX];     /* auto-save: file the core writes, renamed over `dest` on success */
     char         dest[PATH_MAX];
+#ifdef SUXTY_PLUGIN
+    /* a plugin gets neither the core's state callback nor its status messages (the front-end owns both), so a save
+     * is judged from the file: it differs from before the job and its size has stopped changing */
+    int          pre_exists;
+    off_t        pre_size;
+    struct timespec pre_mtime;
+    off_t        last_size;
+    uint32_t     stable_since;
+#endif
 } l_job;
+
+#ifdef SUXTY_PLUGIN
+/* the file a running save job writes (tmp file for the auto slot, the slot's file otherwise) */
+static int job_file(char *path, size_t size)
+{
+    if (l_job.slot == STATES_AUTO_SLOT)
+        return snprintf(path, size, "%s", l_job.tmp) > 0 && l_job.tmp[0] ? 0 : -1;
+    return states_slot_path(l_job.slot, path, size);
+}
+#endif
 static SDL_atomic_t l_job_result;   /* 0 pending, 1 success, 2 failure (from the state callback) */
 
 /* "Is the file on disk yet?"  The state callback is not enough for a save: depending on the core version,
@@ -318,6 +337,20 @@ static int start_save(int slot, int from_menu, int quit_after)
     l_job.slot = slot;
     l_job.from_menu = from_menu;
     l_job.quit_after = quit_after;
+#ifdef SUXTY_PLUGIN
+    if (slot == STATES_AUTO_SLOT && states_slot_path(slot, l_job.dest, sizeof(l_job.dest)) == 0)
+        snprintf(l_job.tmp, sizeof(l_job.tmp), "%s.tmp", l_job.dest);
+    {
+        char path[PATH_MAX];
+        struct stat st;
+        if (job_file(path, sizeof(path)) == 0 && stat(path, &st) == 0)
+        {
+            l_job.pre_exists = 1;
+            l_job.pre_size = st.st_size;
+            l_job.pre_mtime = st.st_mtim;
+        }
+    }
+#endif
     SDL_AtomicSet(&l_job_result, 0);
     l_job.kind = JOB_SAVE;
     if (slot == STATES_AUTO_SLOT)
@@ -409,8 +442,37 @@ static int job_poll(char *msg, size_t msgsize, int *kind)
         return 0;
     if (l_job.started == 0)
         l_job.started = now ? now : 1;
+#ifdef SUXTY_PLUGIN
+    res = 0;
+    if (l_job.kind == JOB_SAVE)
+    {
+        char path[PATH_MAX];
+        struct stat st;
+        if (job_file(path, sizeof(path)) == 0 && stat(path, &st) == 0 && st.st_size > 0)
+        {
+            int changed = !l_job.pre_exists || st.st_size != l_job.pre_size ||
+                          st.st_mtim.tv_sec != l_job.pre_mtime.tv_sec || st.st_mtim.tv_nsec != l_job.pre_mtime.tv_nsec;
+            if (st.st_size != l_job.last_size)
+            {
+                l_job.last_size = st.st_size;
+                l_job.stable_since = 0;
+            }
+            else if (changed)
+            {
+                if (l_job.stable_since == 0)
+                    l_job.stable_since = now ? now : 1;
+                else if (now - l_job.stable_since >= 400u)
+                    res = 1;
+            }
+        }
+    }
+    else
+        res = l_job.frames >= 3 ? 1 : 0;       /* the core runs the load at the next VI interrupt; failures only show in its log */
+    if (0)
+#else
     res = SDL_AtomicGet(&l_job_result);
     if (l_job.kind == JOB_SAVE)
+#endif
     {
         int m = SDL_AtomicGet(&l_msg_result);
         if (m != 0)
@@ -899,7 +961,7 @@ static int run_menu(const menu_entry *entry)
 
     /* 5. act on the choice.  Everything below is issued while the core is still paused; the core runs it from
      *    its own interrupt handler once it executes again (so the job outlives this call; see job_poll()). */
-    if (result == MENU_NONE || result == MENU_RESUME || result == MENU_RESET)
+    if (result == MENU_NONE || result == MENU_RESUME || result == MENU_RESET || result == MENU_RESET_SOFT)
     {
         int sel = menu_selected_slot();
         if (sel >= 0)
@@ -921,10 +983,10 @@ static int run_menu(const menu_entry *entry)
         paused_by_us = 0;
         begin_quit();
     }
-    else if (result == MENU_RESET)
+    else if (result == MENU_RESET || result == MENU_RESET_SOFT)
     {
-        DebugMessage(M64MSG_INFO, "resetting the console");
-        (*CoreDoCommand)(M64CMD_RESET, 1, NULL);     /* 1 = hard reset (power cycle) */
+        DebugMessage(M64MSG_INFO, "%s reset of the console", result == MENU_RESET ? "hard" : "soft");
+        (*CoreDoCommand)(M64CMD_RESET, result == MENU_RESET ? 1 : 0, NULL);     /* 1 = hard reset (power cycle), 0 = soft */
     }
     else if (result == MENU_SAVE_STATE)
     {
@@ -972,12 +1034,14 @@ int session_before_swap(void)
     l_frames++;
     if (l_frames == 3)
         profile_apply_volume();                      /* the audio plugin is up: this game's volume */
+#ifndef SUXTY_PLUGIN
     if (l_frames == 300 && remap_health_check() < 0)
     {
         DebugMessage(M64MSG_WARNING, "the input plugin never read the controller through SDL_JoystickGet*(): "
                      "the controller remap has no effect with this plugin");
         toast_show(TOAST_ERROR, "Remap inactive: input plugin bypasses it");
     }
+#endif
     now = SDL_GetTicks();
 
     if (l_stop_requested)

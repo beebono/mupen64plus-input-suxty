@@ -302,6 +302,17 @@ int remap_virtual_axis(int p, int axis)
 
 unsigned remap_virtual_hits(void) { return l_hits; }
 
+/* plugin mode: the N64 state of player p as of the last remap_update(); 0 if the player has no pad */
+int remap_player_state(int p, n64_state *out)
+{
+    memset(out, 0, sizeof(*out));
+    if (!l_launched || p < 0 || p >= REMAP_PLAYERS || l_pl[p].src_pad < 0)
+        return 0;
+    *out = l_pl[p].st;
+    l_hits++;
+    return 1;
+}
+
 void remap_probe(int p, n64_state *out)
 {
     padmap_io io;
@@ -424,6 +435,11 @@ static void write_section(int p, int virt)
 static void write_all(int virt)
 {
     int p;
+#ifdef SUXTY_PLUGIN
+    (void) virt;          /* we ARE the input plugin: there is no other plugin whose Input-SDL-ControlN sections need feeding */
+    (void) p;
+    return;
+#endif
     for (p = 0; p < REMAP_PLAYERS; p++)
         write_section(p, virt);
     l_virtual_live = virt;
@@ -435,6 +451,10 @@ static void save_sections(void)
     char name[32];
     if (!l_save_core || ConfigSaveSection == NULL)
         return;
+#ifdef SUXTY_PLUGIN
+    (void) name;
+    return;
+#endif
     for (p = 0; p < REMAP_PLAYERS; p++)
     {
         snprintf(name, sizeof(name), "Input-SDL-Control%d", p + 1);

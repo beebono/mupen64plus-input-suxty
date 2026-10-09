@@ -81,6 +81,7 @@ ptr_ConfigGetUserCachePath      ConfigGetUserCachePath = NULL;
 
 /* global variables */
 m64p_dynlib_handle CoreHandle = NULL;
+static int l_core_borrowed;            /* SUXTY_PLUGIN: the handle belongs to the front-end; never dlclose it */
 
 /* The set of functions suxty cannot work without.  Table-driven so attach and
  * detach cannot get out of sync. */
@@ -101,10 +102,38 @@ static const struct { const char *name; void **ptr; } l_CoreFuncs[] = {
 #define NUM_CORE_FUNCS (sizeof(l_CoreFuncs) / sizeof(l_CoreFuncs[0]))
 
 /* functions */
-m64p_error AttachCoreLib(const char *CoreLibFilepath)
+static m64p_error resolve_core_funcs(void)
 {
     size_t i;
+    for (i = 0; i < NUM_CORE_FUNCS; i++)
+    {
+        *l_CoreFuncs[i].ptr = osal_dynlib_getproc(CoreHandle, l_CoreFuncs[i].name);
+        if (*l_CoreFuncs[i].ptr == NULL)
+        {
+            DebugMessage(M64MSG_ERROR, "AttachCoreLib() Error: core library lacks required function %s()", l_CoreFuncs[i].name);
+            return M64ERR_INCOMPATIBLE;
+        }
+    }
+    return M64ERR_SUCCESS;
+}
 
+/* Plugin mode: the front-end loaded the core and hands us its handle in PluginStartup(). */
+m64p_error AttachCoreHandle(m64p_dynlib_handle handle)
+{
+    if (handle == NULL)
+        return M64ERR_INPUT_INVALID;
+    CoreHandle = handle;
+    l_core_borrowed = 1;
+    if (resolve_core_funcs() != M64ERR_SUCCESS)
+    {
+        DetachCoreLib();
+        return M64ERR_INCOMPATIBLE;
+    }
+    return M64ERR_SUCCESS;
+}
+
+m64p_error AttachCoreLib(const char *CoreLibFilepath)
+{
     /* check if Core DLL is already attached */
     if (CoreHandle != NULL)
         return M64ERR_INVALID_STATE;
@@ -200,15 +229,10 @@ m64p_error AttachCoreLib(const char *CoreLibFilepath)
         DebugMessage(M64MSG_INFO, "            Includes support for Dynamic Recompiler.");
 
     /* get function pointers to the common, front-end and config functions */
-    for (i = 0; i < NUM_CORE_FUNCS; i++)
+    if (resolve_core_funcs() != M64ERR_SUCCESS)
     {
-        *l_CoreFuncs[i].ptr = osal_dynlib_getproc(CoreHandle, l_CoreFuncs[i].name);
-        if (*l_CoreFuncs[i].ptr == NULL)
-        {
-            DebugMessage(M64MSG_ERROR, "AttachCoreLib() Error: core library lacks required function %s()", l_CoreFuncs[i].name);
-            DetachCoreLib();
-            return M64ERR_INCOMPATIBLE;
-        }
+        DetachCoreLib();
+        return M64ERR_INCOMPATIBLE;
     }
 
     return M64ERR_SUCCESS;
@@ -225,8 +249,10 @@ m64p_error DetachCoreLib(void)
     for (i = 0; i < NUM_CORE_FUNCS; i++)
         *l_CoreFuncs[i].ptr = NULL;
 
-    /* detach the shared library */
-    osal_dynlib_close(CoreHandle);
+    /* detach the shared library (not one that the front-end owns) */
+    if (!l_core_borrowed)
+        osal_dynlib_close(CoreHandle);
+    l_core_borrowed = 0;
     CoreHandle = NULL;
 
     return M64ERR_SUCCESS;

@@ -456,7 +456,12 @@ uint32_t pad_poll(void)
 
     /* goes through inputfilter.c's SDL_JoystickUpdate() override, which keeps the game-input filter current */
     if (l_inited)
+    {
         SDL_JoystickUpdate();
+#ifdef SUXTY_PLUGIN
+        inputfilter_after_update();
+#endif
+    }
     m = read_all(NULL, NULL);
     if (l_swap_ab)
         m = pad_swap_ab_mask(m);
@@ -642,3 +647,16 @@ void pad_tracker_update(pad_tracker *t, uint32_t held, uint32_t now_ms)
     t->held = held;
     t->prev = held;
 }
+
+#ifdef SUXTY_PLUGIN
+/* GetKeys() on the emulation thread: refresh SDL's joystick state and advance the hotkey filter / virtual N64 pads
+ * (inputfilter_after_update).  Unlike pad_poll() it reads no button masks. */
+void pad_refresh(void)
+{
+    if (l_inited)
+    {
+        SDL_JoystickUpdate();
+        inputfilter_after_update();
+    }
+}
+#endif

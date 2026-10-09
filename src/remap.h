@@ -69,6 +69,7 @@ int  remap_player_for(SDL_Joystick *js);            /* player 0-3 whose plugin j
 int  remap_virtual_button(int player, int button);
 int  remap_virtual_axis(int player, int axis);
 void remap_update(void);                            /* after every SDL_JoystickUpdate: evaluate all players */
+int  remap_player_state(int player, n64_state *out);   /* plugin mode (GetKeys): 1 = the player has a pad */
 unsigned remap_virtual_hits(void);                  /* how often the input plugin read a virtual pad */
 int      remap_health_check(void);                  /* 1 = plugin reads it, -1 = never did, 0 = n/a */
 

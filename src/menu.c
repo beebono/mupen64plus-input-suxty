@@ -353,6 +353,18 @@ static void page_settings(void)
     ui_panel_end(game ? "A Select   Left/Right Change   X Reset   B Back" : "A Select   Left/Right Change   B Back");
 }
 
+static menu_result page_reset(void)
+{
+    menu_result r = MENU_NONE;
+    ui_panel_begin("Reset", 4);
+    ui_label("Reset the game?");
+    if (ui_button("No"))                       pop();
+    if (ui_button("Soft reset"))               r = MENU_RESET_SOFT;
+    if (ui_button("Hard reset (power cycle)")) r = MENU_RESET;
+    ui_panel_end("A Select   B Back");
+    return r;
+}
+
 static menu_result page_confirm(const char *title, const char *question, const char *question2, menu_result yes)
 {
     menu_result r = MENU_NONE;
@@ -418,7 +430,7 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
             break;
         }
         case PAGE_SETTINGS:      page_settings(); if (back) { pop(); cfg_save(); } break;
-        case PAGE_CONFIRM_RESET: r = page_confirm("Confirm", "Reset the game?", NULL, MENU_RESET); if (back) pop(); break;
+        case PAGE_CONFIRM_RESET: r = page_reset(); if (back) pop(); break;
         case PAGE_CONTROLS: case PAGE_PRESETS: case PAGE_CONFIRM_PRESET: case PAGE_BUTTONS: case PAGE_MODLAYER:
         case PAGE_CAPTURE: case PAGE_TEST: case PAGE_HOTKEYS: case PAGE_COMBO_CAPTURE: case PAGE_COMBO_CONFIRM:
         case PAGE_CONFIRM_CTL_RESET:

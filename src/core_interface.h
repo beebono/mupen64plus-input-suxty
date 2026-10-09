@@ -30,6 +30,7 @@
 /* function declarations */
 extern m64p_error AttachCoreLib(const char *CoreLibFilepath);
 extern m64p_error DetachCoreLib(void);
+extern m64p_error AttachCoreHandle(m64p_dynlib_handle handle);   /* plugin mode: use the front-end's core handle */
 
 /* global variables from core_interface.c */
 extern int g_CoreCapabilities;

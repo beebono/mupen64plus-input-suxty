@@ -87,6 +87,10 @@ int      inputfilter_phys_hat(SDL_Joystick *js, int hat);
 int      inputfilter_phys_axis(SDL_Joystick *js, int axis);
 int      inputfilter_phys_axis_rest(SDL_Joystick *js, int axis);
 
+#ifdef SUXTY_PLUGIN
+void     inputfilter_after_update(void);    /* after SDL_JoystickUpdate(): advance the filter and the virtual N64 pads */
+#endif
+
 int      inputfilter_active(void);          /* currently hiding something? */
 uint32_t inputfilter_hidden_count(void);    /* statistics: values hidden from the plugin so far */
 

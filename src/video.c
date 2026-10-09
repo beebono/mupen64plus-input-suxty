@@ -492,6 +492,23 @@ m64p_error video_install(void)
     return CoreOverrideVidExt(&table);
 }
 
+#ifdef SUXTY_PLUGIN
+/* PluginShutdown: stop the core calling into this library (our table's pointers die with the dlclose), and tear the
+ * window down if the video plugin never called VidExt_Quit() */
+void video_uninstall(void)
+{
+    static m64p_video_extension_functions none;     /* any NULL entry deactivates the override */
+    none.Functions = 17;
+    if (CoreOverrideVidExt != NULL)
+        (*CoreOverrideVidExt)(&none);
+    if (l_win != NULL || l_game_ctx != NULL)
+    {
+        DebugMessage(M64MSG_WARNING, "suxty: the video plugin left the window open; closing it");
+        vx_quit();
+    }
+}
+#endif
+
 /* ---- helpers for session.c ------------------------------------------------------------------ */
 
 int video_ui_available(void)

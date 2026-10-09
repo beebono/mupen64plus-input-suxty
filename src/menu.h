@@ -36,11 +36,12 @@
 typedef enum {
     MENU_NONE = 0,     /* stay in the menu */
     MENU_RESUME,       /* close the menu, continue the game */
-    MENU_RESET,        /* soft-reset the emulated console, then continue */
+    MENU_RESET,        /* hard-reset (power cycle) the emulated console, then continue */
     MENU_QUIT,         /* stop emulation and exit */
     MENU_SAVE_STATE,   /* save to menu_action_slot(); the session re-opens the menu when the save is done */
     MENU_LOAD_STATE,   /* load menu_action_slot(), then continue */
-    MENU_RESTART       /* auto-save, quit and start the game again with --resume (applies launch-time options) */
+    MENU_RESTART,      /* auto-save, quit and start the game again with --resume (applies launch-time options) */
+    MENU_RESET_SOFT    /* soft-reset: like pressing the console's reset button, RDRAM is kept */
 } menu_result;
 
 void        menu_set_game_name(const char *name);

@@ -55,6 +55,9 @@ void pad_shutdown(void);
 /* Bitmask of currently held logical buttons, all controllers merged.  Also folds in
  * the left stick as D-pad (beyond the nav deadzone) and any injected test buttons. */
 uint32_t pad_poll(void);
+#ifdef SUXTY_PLUGIN
+void     pad_refresh(void);     /* SDL_JoystickUpdate + input filter / virtual N64 pad update, no button masks */
+#endif
 
 /* The physical SDL_Joystick control behind a logical button, as the SDL game controller mapping (or the
  * generic fallback layout) defines it.  inputfilter.c uses this to hide exactly those controls from the

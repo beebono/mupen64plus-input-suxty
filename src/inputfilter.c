@@ -132,6 +132,16 @@ static void resolve(void)
 {
     if (l_resolved)
         return;
+#ifdef SUXTY_PLUGIN
+    /* plugin build: nothing is interposed, the real functions are SDL's own */
+    real_update = SDL_JoystickUpdate;
+    real_button = SDL_JoystickGetButton;
+    real_axis = SDL_JoystickGetAxis;
+    real_hat = SDL_JoystickGetHat;
+    real_axis_initial = SDL_JoystickGetAxisInitialState;
+    l_resolved = 1;
+    return;
+#endif
     real_update = (void (*)(void)) dlsym(RTLD_NEXT, "SDL_JoystickUpdate");
     real_button = (Uint8 (*)(SDL_Joystick *, int)) dlsym(RTLD_NEXT, "SDL_JoystickGetButton");
     real_axis = (Sint16 (*)(SDL_Joystick *, int)) dlsym(RTLD_NEXT, "SDL_JoystickGetAxis");
@@ -253,6 +263,23 @@ int inputfilter_phys_axis_rest(SDL_Joystick *js, int a)
     return axis_rest(js, a);
 }
 
+#ifdef SUXTY_PLUGIN
+/* The plugin does not interpose SDL: pad_poll() calls this right after SDL_JoystickUpdate(), and GetKeys reads the
+ * N64 state from remap.c.  Same bookkeeping the SDL_JoystickUpdate() override does in the front-end build. */
+void inputfilter_after_update(void)
+{
+    if (l_bypass == 0)
+    {
+        if (l_enabled)
+        {
+            uint32_t d[PAD_MAX_PADS + 1];
+            pad_read_digital(d);
+            inputfilter_update(d);
+        }
+        remap_update();
+    }
+}
+#else
 /* ---- overrides (exported, see suxty.exports) ------------------------------------------------ */
 
 /* The input plugin's joystick for an N64 player is a *virtual* pad (remap.c): the N64 state computed from the
@@ -297,3 +324,4 @@ Uint8 SDL_JoystickGetHat(SDL_Joystick *joystick, int hat)
         return SDL_HAT_CENTERED;
     return phys_hat(joystick, hat);
 }
+#endif /* !SUXTY_PLUGIN */

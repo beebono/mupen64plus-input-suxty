@@ -36,5 +36,6 @@ int  video_enter_ui(void);
 void video_leave_ui(void);
 void video_present(void);
 void video_set_unthrottled(int unthrottled);    /* swap interval 0 while fast-forwarding */
+int  video_present_due(void);                   /* about one display refresh since the last swap returned */
 
 #endif /* VIDEO_H */

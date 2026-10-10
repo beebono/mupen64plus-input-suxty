@@ -238,6 +238,21 @@ void fif_reset(unsigned i)
     l_if->set(i, effective(i));
 }
 
+void fif_ff_frameskip(int skip)
+{
+    unsigned i;
+    int v;
+    for (i = 0; l_if != NULL && i < l_if->option_count; i++)
+        if (strcmp(l_if->options[i].key, "FrameSkip") == 0)
+            break;
+    if (l_if == NULL || i == l_if->option_count)
+        return;
+    v = effective(i);                                /* 0-3 fixed, 4 auto */
+    if (skip > 0 && (v == 4 || v < skip))
+        v = skip;
+    l_if->set(i, v);
+}
+
 void fif_reapply_all(void)
 {
     unsigned i;

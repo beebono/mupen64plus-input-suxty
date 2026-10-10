@@ -7,7 +7,11 @@
   (before any video plugin calls `VidExt_*`) and loads the game's settings in `InitiateControllers` (the ROM is open then; the video plugin has not opened it).
 - **Video hook.** `CoreOverrideVidExt()` makes suxty own the SDL2 window, the GL context and the buffer swap. The game renders in its own context; the menu draws in a **second GL context on the same window**,
   so the video plugin's GL state is never touched. Every swap polls the pad state; when the combo fires, suxty reads back the frame about to be shown, pauses the core (`M64CMD_PAUSE`) and runs the menu as a nested
-  loop inside that swap call (own event pumping, presenting at about 60 Hz), then resumes. No second thread, no locking (see `src/session.h`). Toasts and the fast-forward badge are drawn over the finished frame just before the swap.
+  loop inside that swap call (own event pumping, presenting at about 60 Hz), then resumes. No second thread, no locking (see `src/session.h`). Toasts and the fast-forward badge are drawn over the finished frame just before the swap. While fast-forward is on, a frame that arrives
+  less than one display refresh after the last swap is not presented (the swap is consumed), so a driver that ignores swap
+  interval 0 (mali fbdev) cannot hold the game at the refresh rate; when it ends every frame is swapped again.
+  With foir, fast-forward also pins foir's FrameSkip (`fif_ff_frameskip`: 1 frame in 2 up to 200 %, 1 in 3 at 300 %, else 1 in 4)
+  and restores the configured value when it ends.
 - **Input.** `GetKeys()` runs on the same thread: `SDL_JoystickUpdate`, then the hotkey filter (`src/inputfilter.c`: the hotkey button or the open menu makes the pad neutral for the game, and a button pressed in that time stays hidden until released),
   then the N64 mapping (`src/padmap.c`, `src/remap.c`). No SDL function is intercepted.
 - **Saves.** `src/states.c` slot file names; `src/filewatch.c` inotify watch (with a stat fallback); `src/autosave.c` validation, backups and the start check; `src/session.c` ties them to the core commands.

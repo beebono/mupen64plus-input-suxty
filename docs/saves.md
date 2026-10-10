@@ -53,4 +53,6 @@ so the options (label, kind, value, whether a change applies at once) come from 
 ## Volume
 
 Settings > Volume (0-100, `M64CORE_AUDIO_VOLUME`) applies at once and is stored per scope (`[audio] volume`); X goes back to the audio plugin's own default. The row is hidden if the core or audio plugin cannot report a volume.
-Fast-forward changes audio speed with the core's speed factor; `fast_forward_speed = 0` (limiter off) can make `audio-sdl` skip.
+Fast-forward changes audio speed with the core's speed factor; `fast_forward_speed = 0` (limiter off) can make `audio-sdl` skip. With `audio-sdl`'s `AUDIO_SYNC`
+on (spruce's default) the audio plugin paces the emulator: "Unlimited" then runs at 1x, and so do 400 % and 500 % (`audio-sdl`
+rejects speed factors above 300).

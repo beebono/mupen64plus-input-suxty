@@ -45,5 +45,7 @@ void fif_reapply_all(void);
 int  fif_pin_game(void);
 int  fif_save_defaults(void);
 void fif_value_text(unsigned i, int v, char *out, unsigned size);
+/* fast-forward: render one frame in skip+1 without touching the stored option; 0 = back to the configured value */
+void fif_ff_frameskip(int skip);
 
 #endif /* FOIR_IF_H */

@@ -40,6 +40,8 @@ static int            l_swap_control = 0;     /* like the core's own VidExt: no 
 static int            l_profile_set;
 static int            l_fullscreen;
 static char          *l_title;
+static uint32_t       l_refresh_ms = 16;      /* display refresh period, rounded down */
+static uint32_t       l_last_present;         /* SDL_GetTicks() when the last swap returned */
 
 static int get_current_display(void)
 {
@@ -292,6 +294,11 @@ static m64p_error vx_set_mode(int width, int height, int bpp, int screen_mode, i
 
     if (SDL_GL_SetSwapInterval(l_swap_control) != 0)
         DebugMessage(M64MSG_WARNING, "SDL swap interval (VSync) set failed: %s", SDL_GetError());
+    {
+        SDL_DisplayMode dm;
+        int hz = SDL_GetWindowDisplayMode(l_win, &dm) == 0 && dm.refresh_rate > 0 ? dm.refresh_rate : 60;
+        l_refresh_ms = 1000 / hz;
+    }
 
     if (l_ui_ctx == NULL)
         setup_overlay_context();
@@ -443,7 +450,7 @@ static m64p_error vx_swap(void)
         return M64ERR_SUCCESS;
     if (l_ui_ok && session_before_swap())
         return M64ERR_SUCCESS;
-    SDL_GL_SwapWindow(l_win);
+    video_present();
     return M64ERR_SUCCESS;
 }
 
@@ -537,8 +544,17 @@ void video_leave_ui(void)
 
 void video_present(void)
 {
-    if (l_win != NULL)
-        SDL_GL_SwapWindow(l_win);
+    if (l_win == NULL)
+        return;
+    SDL_GL_SwapWindow(l_win);
+    l_last_present = SDL_GetTicks();
+}
+
+/* mali fbdev (spruce) ignores swap interval 0, so every swap waits for vblank; a swap issued about one refresh after
+ * the previous one returned waits ~2 ms at most */
+int video_present_due(void)
+{
+    return SDL_GetTicks() - l_last_present + 2 >= l_refresh_ms;
 }
 
 /* a vsynced swap would cap the game at the display refresh rate whatever speed the core runs at; call on the thread

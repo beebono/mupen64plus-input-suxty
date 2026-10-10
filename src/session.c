@@ -205,6 +205,8 @@ static void ff_set(int on)
     }
     l_ff_on = on;
     video_set_unthrottled(on);
+    /* render only the frames the speed leaves room for: 1 in 2 up to 200 %, 1 in 3 at 300 %, else foir's maximum 1 in 4 */
+    fif_ff_frameskip(!on ? 0 : g_cfg.ff_speed == 0 || g_cfg.ff_speed > 300 ? 3 : g_cfg.ff_speed > 200 ? 2 : 1);
     DebugMessage(M64MSG_INFO, "fast-forward %s (frame %u, t=%u ms)", on ? "on" : "off", l_frames, (unsigned) SDL_GetTicks());
 }
 
@@ -790,6 +792,10 @@ int session_before_swap(void)
     l_prev_held = held;
 
     if (open && run_menu())
+        return 1;
+    /* fast-forward: frames arriving faster than the display refreshes are dropped instead of blocking in the swap;
+     * once it ends every frame is swapped again, so the newest one shows at the next vblank */
+    if (l_ff_on && !want_shot && !video_present_due())
         return 1;
     if (toast_visible())
     {

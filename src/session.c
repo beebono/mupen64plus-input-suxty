@@ -41,6 +41,7 @@
 #include "main.h"
 #include "menu.h"
 #include "pad.h"
+#include "quitarm.h"
 #include "remap.h"
 #include "session.h"
 #include "states.h"
@@ -84,7 +85,7 @@ static int  l_ff_on;
 static int  l_ff_saved_factor = 100;
 
 /* fast-forward + hotkey bookkeeping */
-static uint32_t l_quit_since;
+static quitarm_t l_quit_arm;           /* Confirm Quit: the first press of the quit hotkey */
 
 int session_menu_blocks_this_thread(void)
 {
@@ -542,24 +543,14 @@ static int hotkeys_update(uint32_t held, uint32_t prev, uint32_t now)
         else
             ff_set(complete[HK_FF]);
     }
-    if (g_cfg.hk_quit != 0)
+    if (g_cfg.hk_quit != 0 && fire[HK_QUIT] && !open)
     {
-        if (complete[HK_QUIT])
+        switch (quitarm_press(&l_quit_arm, g_cfg.confirm_quit, now))
         {
-            if (fire[HK_QUIT] || l_quit_since == 0)
-            {
-                l_quit_since = now ? now : 1;
-                if (g_cfg.quit_hold_ms > 0)
-                    toast_show(TOAST_INFO, "Hold to quit...");
-            }
-            if (now - l_quit_since >= (uint32_t) g_cfg.quit_hold_ms)
-            {
-                l_quit_since = 0;
-                begin_quit();
-            }
+            case QUITARM_ARMED: toast_show(TOAST_INFO, "Press again to quit"); break;
+            case QUITARM_QUIT:  begin_quit(); break;
+            default: break;
         }
-        else
-            l_quit_since = 0;
     }
     return open;
 }
@@ -609,6 +600,7 @@ static int run_menu(void)
     /* 2. pause the core (state bookkeeping + any threaded plugin), then become the menu thread */
     ff_set(0);
     toast_clear();
+    quitarm_reset(&l_quit_arm);
     if (emu_state() == M64EMU_RUNNING && (*CoreDoCommand)(M64CMD_PAUSE, 0, NULL) == M64ERR_SUCCESS)
         paused_by_us = 1;
     l_menu_thread = SDL_ThreadID();
@@ -647,6 +639,8 @@ static int run_menu(void)
         pad_inject(dt.buttons);
         if (dt.cap)
             pad_capture_inject(&dt.capsrc);
+        if (dt.probe_set)
+            remap_set_probe_override(dt.probe_on, &dt.probe);
         held = pad_poll();
         now = SDL_GetTicks();
         pad_tracker_update(&tr, held, now);
@@ -670,6 +664,8 @@ static int run_menu(void)
             ugl_background_draw(w, h, brightness);
             /* the buttons that confirmed a new menu combo are not also presses on the page underneath */
             result = menu_frame(w, h, consumed ? 0 : tr.pressed, consumed ? 0 : held);
+            if (toast_visible())
+                toast_draw(w, h);                 /* "Game profile saved" and the like, over the menu (at the top: the footer and status line stay readable) */
             if (dt.shot)
                 shot = ugl_readback(w, h);        /* composited back buffer, before it is presented */
             ugl_end();

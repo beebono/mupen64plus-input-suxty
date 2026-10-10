@@ -103,9 +103,11 @@ void pad_capture_begin(int pad);
 int  pad_capture_poll(padsrc *out, int *pad_out);        /* 1 = captured something */
 void pad_capture_inject(const padsrc *s);                /* test hook: the next poll returns this */
 
-/* Human readable: "Btn 3", "Hat0 Up", "Axis2+", plus the logical name when there is one ("(A)"). */
+/* Human readable, in generic names: "South", "DPad Right", "L1", "L-Stick Left"; "Btn 12" / "Hat0 Up" / "Axis4+" for a control
+ * that has none. */
 void pad_format_src(int pad, const padsrc *s, char *out, size_t size);
-void pad_format_src_short(const padsrc *s, char *out, size_t size);      /* without the logical name */
+void pad_format_src_short(const padsrc *s, char *out, size_t size);      /* always the raw name */
+const char *pad_generic_name(pad_button b);                               /* "South", "L1" ... */
 /* Digital buttons only (no stick-as-dpad), in the physical-button domain (A/B not swapped).  Does NOT call
  * SDL_JoystickUpdate().  out[i] is the state of pad i (i < PAD_MAX_PADS); out[PAD_MAX_PADS] holds the
  * keyboard / injected test input.  Returns the number of pads. */

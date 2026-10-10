@@ -37,7 +37,9 @@
  *   up down left right a b x y l r start select
  *                   press that button for one tick (then release for one tick)
  *   select+r        press several buttons together (e.g. a hotkey combo) for one tick
- *   holdN:select+y  hold the buttons for N ticks
+ *   holdN:select+y  hold the buttons for N ticks (holdN@K:b also takes a screenshot on tick K of the hold)
+ *   probe:a+b+cup+shift+tilt+sx60+sy-80   make the Test controller page show these N64 buttons / stick values whatever the pad
+ *                   does (layout checks); probe:off ends it
  *   pjsave:N pjzip:N  write a Project64 state (uncompressed / zip) to slot N's .pjN file with the core itself (to test
  *                   that slots which only exist as PJ64 states are shown and loaded)
  *   cap:button:3    answer the next control-capture prompt with that physical control (button:N, hat:N:up,
@@ -50,6 +52,7 @@
 #include <stdint.h>
 
 #include "pad.h"
+#include "padmap.h"
 
 typedef struct {
     uint32_t buttons;     /* virtual buttons held this tick */
@@ -62,6 +65,9 @@ typedef struct {
     int      stat;
     int      cap;          /* capsrc is valid: feed it to the capture prompt */
     padsrc   capsrc;
+    int      probe_set;    /* probe_on / probe: override (or stop overriding) what the Test controller page shows */
+    int      probe_on;
+    n64_state probe;
 } dbg_tick_t;
 
 void dbg_configure(const char *script, const char *shot_prefix, int open_menu_after);

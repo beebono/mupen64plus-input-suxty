@@ -254,6 +254,26 @@ void fif_reapply_all(void)
         l_if->set(i, effective(i));
 }
 
+/* "Save Game Profile": every option this game has no value for yet gets the value it plays with now.  Returns how many were written. */
+int fif_pin_game(void)
+{
+    unsigned i;
+    int n = 0;
+    if (l_if == NULL || g_cfg.game == NULL)
+        return 0;
+    for (i = 0; i < l_if->option_count; i++)
+    {
+        char text[48];
+        const struct foir_suxty_option *o = &l_if->options[i];
+        if (ini_has(g_cfg.game, "foir", o->key))
+            continue;
+        fif_value_text(i, effective(i), text, sizeof(text));
+        ini_set(g_cfg.game, "foir", o->key, text);
+        n++;
+    }
+    return n;
+}
+
 int fif_save_defaults(void)
 {
     unsigned i;

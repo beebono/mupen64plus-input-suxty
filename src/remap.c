@@ -123,7 +123,7 @@ static void assign_pads(int src[REMAP_PLAYERS], const char *want[REMAP_PLAYERS])
 }
 
 /* the mapping slot of the pad model `pad` (a pad.c index): both layers loaded from suxty.cfg / the game file, or the
- * default preset; NULL for no pad */
+ * default mapping; NULL for no pad */
 static mapslot *slot_for_pad(int pad)
 {
     pad_layout lay;
@@ -145,11 +145,11 @@ static mapslot *slot_for_pad(int pad)
     snprintf(s->glob.name, sizeof(s->glob.name), "%s", lay.name);
     padmap_section(lay.name, sec, sizeof(sec));
     if (padmap_load(&s->glob, g_cfg.ini, NULL, sec))
-        DebugMessage(M64MSG_INFO, "mapping for '%s': %s (from suxty.cfg)", lay.name, s->glob.preset[0] ? s->glob.preset : "custom");
+        DebugMessage(M64MSG_INFO, "mapping for '%s': from suxty.cfg", lay.name);
     else
     {
-        padmap_apply_preset(&s->glob, PRESET_DEFAULT, &lay, msg, sizeof(msg));
-        DebugMessage(M64MSG_INFO, "mapping for '%s': default preset", lay.name);
+        padmap_default(&s->glob, &lay, msg, sizeof(msg));
+        DebugMessage(M64MSG_INFO, "mapping for '%s': default", lay.name);
     }
     if (g_cfg.game != NULL && ini_has_section(g_cfg.game, sec))
     {
@@ -157,7 +157,7 @@ static mapslot *slot_for_pad(int pad)
         s->game = s->glob;
         padmap_load(&s->game, g_cfg.ini, g_cfg.game, sec);
         s->has_game = 1;
-        DebugMessage(M64MSG_INFO, "mapping for '%s': this game has its own (%s)", lay.name, s->game.preset[0] ? s->game.preset : "custom");
+        DebugMessage(M64MSG_INFO, "mapping for '%s': this game has its own", lay.name);
     }
     return s;
 }
@@ -254,6 +254,7 @@ void remap_update(void)
             continue;
         }
         make_io(&io, src);
+        pl->map->tilt_pct = g_cfg.soft_tilt_pct;
         padmap_eval(pl->map, &io, &pl->st);
     }
 }
@@ -268,15 +269,32 @@ int remap_player_state(int p, n64_state *out)
     return 1;
 }
 
+static int       l_probe_on;          /* debug script "probe:": a made-up state for the Test controller page */
+static n64_state l_probe;
+
+void remap_set_probe_override(int on, const n64_state *st)
+{
+    l_probe_on = on;
+    if (on && st != NULL)
+        l_probe = *st;
+}
+
 void remap_probe(int p, n64_state *out)
 {
     padmap_io io;
+
+    if (l_probe_on)
+    {
+        *out = l_probe;
+        return;
+    }
     SDL_Joystick *src = (p >= 0 && p < REMAP_PLAYERS && l_pl[p].src_pad >= 0) ? pad_joystick(l_pl[p].src_pad) : NULL;
     memset(out, 0, sizeof(*out));
     if (src == NULL)
         return;
     make_io(&io, src);
     inputfilter_bypass(1);                 /* the menu is open: show the real controller */
+    l_pl[p].map->tilt_pct = g_cfg.soft_tilt_pct;
     padmap_eval(l_pl[p].map, &io, out);
     inputfilter_bypass(0);
 }
@@ -453,7 +471,9 @@ int remap_reset_game(void)
     return n;
 }
 
-int remap_apply_preset(int p, int preset, char *msg, size_t msgsize)
+/* "Reset to default mapping": the buttons of the pad's default layout (the stick settings and the rest of the pad's
+ * choices are kept by padmap_default) */
+int remap_default_mapping(int p, char *msg, size_t msgsize)
 {
     pad_layout lay;
     if (l_pl[p].src_pad < 0 || pad_layout_get(l_pl[p].src_pad, &lay) != 0)
@@ -461,8 +481,44 @@ int remap_apply_preset(int p, int preset, char *msg, size_t msgsize)
         snprintf(msg, msgsize, "No controller for player %d", p + 1);
         return -1;
     }
-    if (padmap_apply_preset(remap_edit(p), preset, &lay, msg, msgsize) != 0)
-        return -1;
+    padmap_default(remap_edit(p), &lay, msg, msgsize);
     remap_commit(p);
     return 0;
+}
+
+/* "Save Game Profile": what is in force for every pad model seen and every player becomes this game's own value.
+ * Returns the number of mappings and player choices written. */
+int remap_pin_game(void)
+{
+    int i, p, n = 0;
+    if (g_cfg.game == NULL)
+        return 0;
+    for (i = 0; i < l_nmaps; i++)
+    {
+        char sec[96];
+        mapslot *s = &l_maps[i];
+        if (!s->has_game)
+        {
+            s->game = s->glob;
+            s->has_game = 1;
+        }
+        s->draft = 0;
+        padmap_section(s->name, sec, sizeof(sec));
+        padmap_store(&s->game, g_cfg.game, sec);
+        n++;
+    }
+    for (p = 0; p < REMAP_PLAYERS; p++)
+    {
+        if (!l_pl[p].has_want_game)
+        {
+            snprintf(l_pl[p].want_game, sizeof(l_pl[p].want_game), "%s", l_pl[p].want_g);
+            l_pl[p].has_want_game = 1;
+        }
+        ini_set(g_cfg.game, "players", players_key(p), l_pl[p].want_game[0] ? l_pl[p].want_game : "auto");
+        n++;
+    }
+    reassign();
+    if (l_launched)
+        remap_update();
+    return n;
 }

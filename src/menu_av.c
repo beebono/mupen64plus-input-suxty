@@ -18,11 +18,8 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The Video and Audio option pages and the game profile page of the pause menu.
- *
- *   Video   foir's options, listed from foir's own interface table (foir_if.h); hidden when foir is not the video plugin.
- *   Audio   the core's volume, live (audio.h); hidden entirely if the core can't report it.
- *   Game profile   "Reset all to global" for this game.
+/* The FOIR Options page of the pause menu: foir's options, listed from foir's own interface table (foir_if.h); hidden when
+ * foir is not the video plugin.  (The volume lives in Settings and the game profile is saved from there.)
  *
  * The edit scope (g_cfg.scope) says whether a change is stored for all games (suxty.cfg) or for this game only.
  * Drawn by menu.c's page stack; see menu_int.h. */
@@ -30,13 +27,12 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "audio.h"
 #include "cfg.h"
 #include "foir_if.h"
+#include "font.h"
 #include "menu.h"
 #include "menu_int.h"
 #include "pad.h"
-#include "remap.h"
 #include "ui.h"
 
 static char l_msg[128];
@@ -50,16 +46,14 @@ static void set_msg(const char *text, int kind)
 
 static int scope_game(void) { return g_cfg.scope == CFG_SCOPE_GAME; }
 
-int av_video_available(void) { return fif_get() != NULL; }
-int av_audio_available(void) { return audio_volume_now() >= 0; }
+int av_foir_available(void) { return fif_get() != NULL; }
 
 static int         l_nrow;                     /* focusable rows drawn so far on this page */
 static const char *l_focus_help;               /* the option under the cursor */
 static char        l_focus_note[96];
 
-/* ---- Video ---------------------------------------------------------------------------------------------------- */
+/* ---- FOIR Options ------------------------------------------------------------------------------------------- */
 
-/* One foir option: the widget for its type, then what a change / X does. */
 static void option_row(unsigned i)
 {
     const struct foir_suxty_option *o = fif_option(i);
@@ -122,17 +116,26 @@ static void option_row(unsigned i)
     }
 }
 
-static void page_video(int back)
+static void page_foir(int back)
 {
     char title[48];
     unsigned i, n = fif_count();
-    int any_next = 0;
+    int any_next = 0, rows = 2;
 
+    for (i = 0; i < n; i++)
+        rows++;
+    for (i = 0; i < n; i++)
+        if (!(fif_option(i)->flags & FOIR_OPTF_LIVE) && !any_next)
+        {
+            any_next = 1;
+            rows++;                             /* the "applies at the next launch" heading */
+        }
+    any_next = 0;
     l_nrow = 0;
     l_focus_help = NULL;
     l_focus_note[0] = 0;
-    ui_next_panel_width(90);
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Video: foir"), 9, 1);
+    ui_next_panel_width(UI_W_FULL);
+    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "FOIR Options"), rows, 1);
     for (i = 0; i < n; i++)
         if (fif_option(i)->flags & FOIR_OPTF_LIVE)
             option_row(i);
@@ -140,17 +143,12 @@ static void page_video(int back)
         if (!(fif_option(i)->flags & FOIR_OPTF_LIVE))
         {
             if (!any_next)
-                ui_label("- Applies at the next launch -");
+                ui_label(FONT_CH_DOWN " Applies at the next launch " FONT_CH_DOWN);
             any_next = 1;
             option_row(i);
         }
     if (ui_button("Save as foir default"))
-    {
-        if (fif_save_defaults() == 0)
-            set_msg("Written to [Video-Foir] in mupen64plus.cfg", 1);
-        else
-            set_msg("Couldn't write mupen64plus.cfg", -1);
-    }
+        menu_push(PAGE_CONFIRM_FOIR_DEFAULT);
     l_nrow++;
     if (ui_button("Back"))
         menu_pop();
@@ -158,117 +156,32 @@ static void page_video(int back)
 
     if (l_msg[0])
         ui_status_bar(l_msg, l_msg_kind);
+    else if (ui_focus_mark() == 2)
+        ui_status_bar(menu_scope_status(), 0);
     else if (l_focus_note[0])
         ui_status_bar(l_focus_note, 0);
     else if (l_focus_help != NULL)
         ui_status_bar(l_focus_help, 0);
     else
-        ui_status_bar(scope_game() ? "Saved for this game only" : "Saved for all games", 0);
-    ui_panel_end("A Change   X Reset   B Back");
+        ui_status_bar(menu_scope_status(), 0);
+    ui_panel_end(scope_game() ? "A Change   X Reset   B Back" : "A Change   B Back");
     if (back)
         menu_pop();
 }
 
-/* ---- Audio ------------------------------------------------------------------------------------------------------ */
-
-static void page_audio(int back)
+/* "Save as foir default" writes the user's global mupen64plus.cfg, so it asks first */
+static void page_confirm_default(int back)
 {
-    char title[48], text[24];
-    int ov = cfg_overridden("audio", "volume");
-    int unset = !cfg_get_scoped("audio", "volume", "")[0];
-    int v = unset ? audio_volume_now() : cfg_get_scoped_int("audio", "volume", 80);
-    int dir;
-
-    ui_next_panel_width(80);
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Audio"), 3, 1);
-    if (v < 0)
-        v = 80;
-    snprintf(text, sizeof(text), unset ? "%d%% (plugin)" : "%d%%", v);
-    dir = ui_step("Volume", text);
-    ui_mark_last(menu_mark_kind(ov));
-    if (dir != 0)
+    ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
+    ui_grid(2);
+    ui_label("Write these settings to");
+    ui_label("mupen64plus.cfg?");
+    if (menu_yes_no())
     {
-        v += dir * 5;
-        v = v < 0 ? 0 : v > 100 ? 100 : v;
-        cfg_set_int("audio", "volume", v);
-        audio_apply_volume();
-        set_msg("Volume applied now", 1);
-    }
-    else if (ui_x_last())
-    {
-        if (scope_game() && ov)
-        {
-            cfg_reset("audio", "volume");
-            set_msg("Reset: this game uses the global volume", 1);
-        }
-        else if (!scope_game())
-        {
-            ini_remove(g_cfg.ini, "audio", "volume");
-            cfg_apply();
-            set_msg("Volume: the audio plugin's own default", 0);
-        }
-        audio_apply_volume();
-    }
-    if (ui_button("Back"))
-        menu_pop();
-    if (l_msg[0])
-        ui_status_bar(l_msg, l_msg_kind);
-    else if (ov && !scope_game())
-        ui_status_bar("This game uses its own volume", 0);
-    else
-        ui_status_bar(scope_game() ? "Saved for this game only (X: reset)" : "Saved for all games (X: plugin default)", 0);
-    ui_panel_end("A Select   Left/Right Change   X Reset   B Back");
-    if (back)
-        menu_pop();
-}
-
-/* ---- the game profile ----------------------------------------------------------------------------------------- */
-
-static void page_profile(int back)
-{
-    char line[96], title[32];
-    int n = cfg_game_override_count();
-
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Game profile"), 6, 1);
-    if (!cfg_game_available())
-    {
-        ui_label("This ROM has no MD5:");
-        ui_label("no per-game settings");
-    }
-    else
-    {
-        snprintf(line, sizeof(line), "%d saved for this game", n);
-        ui_label(line);
-        snprintf(line, sizeof(line), "%.8s...cfg", g_cfg.game_md5);
-        ui_label(line);
-        if (ui_button_dis("Reset all to global", n == 0) > 0)
-            menu_push(PAGE_CONFIRM_PROFILE_RESET);
-    }
-    if (ui_button("Back"))
-        menu_pop();
-    if (l_msg[0])
-        ui_status_bar(l_msg, l_msg_kind);
-    ui_panel_end("A Select   B Back");
-    if (back)
-        menu_pop();
-}
-
-static void page_confirm_profile_reset(int back)
-{
-    ui_panel_begin_ex("Confirm", 8, 72);
-    ui_label("Forget every setting saved");
-    ui_label("for this game?");
-    if (ui_button("No"))
-        menu_pop();
-    if (ui_button("Yes"))
-    {
-        remap_reset_game();
-        cfg_reset_all_game();
-        cfg_save();
-        remap_flush();
-        fif_reapply_all();                /* foir's live options go back to the global values */
-        audio_apply_volume();
-        set_msg("This game now uses the global settings", 1);
+        if (fif_save_defaults() == 0)
+            set_msg("Written to [Video-Foir] in mupen64plus.cfg", 1);
+        else
+            set_msg("Couldn't write mupen64plus.cfg", -1);
         menu_pop();
     }
     ui_panel_end("A Select   B Back");
@@ -278,23 +191,21 @@ static void page_confirm_profile_reset(int back)
 
 /* ---- dispatch --------------------------------------------------------------------------------------------------- */
 
-int av_owns_page(menu_page p) { return p >= PAGE_VIDEO; }
+int av_owns_page(menu_page p) { return p >= PAGE_FOIR; }
 
 void av_frame(menu_page page, int back)
 {
     switch (page)
     {
-        case PAGE_VIDEO:   page_video(back); break;
-        case PAGE_AUDIO:   page_audio(back); break;
-        case PAGE_PROFILE: page_profile(back); break;
-        case PAGE_CONFIRM_PROFILE_RESET: page_confirm_profile_reset(back); break;
+        case PAGE_FOIR:                 page_foir(back); break;
+        case PAGE_CONFIRM_FOIR_DEFAULT: page_confirm_default(back); break;
         default: break;
     }
 }
 
 void av_leave_page(menu_page p)
 {
-    if (p >= PAGE_VIDEO)
+    if (p >= PAGE_FOIR)
     {
         cfg_save();
         set_msg("", 0);

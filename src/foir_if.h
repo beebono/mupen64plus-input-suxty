@@ -18,7 +18,7 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The Video page: foir's options, through foir's one-way interface (foir_suxty.h, exported by mupen64plus-rdp-foir as
+/* The FOIR Options page: foir's options, through foir's one-way interface (foir_suxty.h, exported by mupen64plus-rdp-foir as
  * FoirSuxtyGetInterface).  suxty never links foir and foir never calls suxty.
  *
  * FINDING FOIR.  ui-console loads plugins RTLD_LOCAL, so dlsym(RTLD_DEFAULT) can't see them, and the file name is
@@ -55,6 +55,7 @@ int  fif_pending(unsigned i);                             /* shown value != what
 int  fif_set(unsigned i, int v);
 void fif_reset(unsigned i);                               /* drop the game's value ("Reset to global") and re-apply */
 void fif_reapply_all(void);                               /* after "Reset all to global" */
+int  fif_pin_game(void);                                  /* "Save Game Profile": the game gets its own copy of every value in force; returns how many were written */
 int  fif_save_defaults(void);                             /* all shown values -> [Video-Foir] in mupen64plus.cfg; 0 ok */
 void fif_value_text(unsigned i, int v, char *out, unsigned size);
 

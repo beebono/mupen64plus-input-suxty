@@ -19,7 +19,9 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-/* Embedded 8x16 bitmap font atlas (see tools/gen_font.py). */
+/* Embedded 8x16 and 12x24 bitmap font atlases (see tools/gen_font.py).  The 12x24 face is 1.5x the 8x16 one, crisply
+ * rasterised rather than scaled: it is used for hint / footer text, which at the smallest screen size would otherwise
+ * need a fractional scale of the 8x16 bitmap. */
 
 #ifndef FONT_H
 #define FONT_H
@@ -31,9 +33,21 @@
 #define FONT_ATLAS_H   128
 #define FONT_FIRST_CHAR 32
 #define FONT_LAST_CHAR  126
+/* two arrow glyphs live in the cells after '~'; text reaches them as these control characters */
+#define FONT_CH_DOWN    "\x01"
+#define FONT_CH_UP      "\x02"
+#define FONT_CELL_DOWN  95
+#define FONT_CELL_UP    96
 /* the last cell of the atlas is solid white; used for filled rectangles */
 #define FONT_SOLID_CELL 127
 
 extern const unsigned char font_atlas_alpha[FONT_ATLAS_W * FONT_ATLAS_H];
+
+/* the 12x24 atlas: same layout (16 x 8 cells), cells 12 x 24 */
+#define FONT2_GLYPH_W   12
+#define FONT2_GLYPH_H   24
+#define FONT2_ATLAS_W   192
+#define FONT2_ATLAS_H   192
+extern const unsigned char font_atlas_alpha_12x24[FONT2_ATLAS_W * FONT2_ATLAS_H];
 
 #endif /* FONT_H */

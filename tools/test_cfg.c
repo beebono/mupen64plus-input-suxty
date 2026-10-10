@@ -63,6 +63,12 @@ int main(void)
     CHECK(cfg_init(dir) == 0);
     CHECK(!cfg_game_available());
     CHECK(g_cfg.ff_speed == 300 && g_cfg.autosave_on_quit == 0);        /* auto-save on quit is opt-in */
+    CHECK(g_cfg.confirm_quit == 1 && g_cfg.soft_tilt_pct == 50);        /* Confirm Quit is on, Soft Tilt halves the stick */
+    cfg_set("input", "soft_tilt_scale", "0.25");  CHECK(g_cfg.soft_tilt_pct == 25);
+    cfg_set("input", "soft_tilt_scale", "1.5");   CHECK(g_cfg.soft_tilt_pct == 100);
+    cfg_set("input", "soft_tilt_scale", "-1");    CHECK(g_cfg.soft_tilt_pct == 0);
+    cfg_set("input", "soft_tilt_scale", "half");  CHECK(g_cfg.soft_tilt_pct == 50);          /* not a number: the default */
+    cfg_set("input", "soft_tilt_scale", "0.5");
     cfg_set_bool("states", "autosave_on_quit", 1);
     CHECK(g_cfg.autosave_on_quit == 1);
 
@@ -161,6 +167,80 @@ int main(void)
         cfg_shutdown();
         /* what was written no longer has them */
         CHECK(cfg_init(dir2) == 0 && cfg_load_game(md5) == 0 && cfg_game_override_count() == 2 && !ini_has(g_cfg.ini, "input", "remap_input"));
+        cfg_shutdown();
+    }
+
+    /* the menu refinement pass: hints are always on (show_hints is gone), "Quit hold" became "Confirm Quit" (a hold of 0 = off,
+     * any other = on, an explicit confirm_quit wins), and the pad sections' modifier layer became the C-Face shift - in the
+     * global file and in a game file alike, written back clean */
+    {
+        char dir3[] = "/tmp/suxty-test-cfg3-XXXXXX", gpath[600];
+        FILE *f;
+        if (mkdtemp(dir3) == NULL)
+            return 2;
+        snprintf(path, sizeof(path), "%s/suxty", dir3);
+        osal_mkdir_p(path);
+        snprintf(path, sizeof(path), "%s/suxty/suxty.cfg", dir3);
+        f = fopen(path, "w");
+        fputs("[general]\nversion = 2\n[menu]\nshow_hints = false\ndim_percent = 30\n[hotkeys]\nquit_hold_ms = 0\n"
+              "[pad:one]\npreset = Face buttons = C\nmodifier = button:7\nmod_c_up = button:3\nmod_c_down = button:0\na = button:0\n"
+              "[pad:two]\nmodifier = button:6\nmod_a = button:4\n", f);
+        fclose(f);
+        snprintf(gpath, sizeof(gpath), "%s/suxty/games", dir3);
+        osal_mkdir_p(gpath);
+        snprintf(gpath, sizeof(gpath), "%s/suxty/games/753437d0d8ada1d12f3f9cf0f0a5171f.cfg", dir3);
+        f = fopen(gpath, "w");
+        fputs("[hotkeys]\nquit_hold_ms = 2000\n[pad:one]\nmodifier = button:6\nmod_c_up = button:2\n[pad:two]\nmodifier = button:6\nmod_a = button:4\n", f);
+        fclose(f);
+        CHECK(cfg_init(dir3) == 0);
+        CHECK(!ini_has(g_cfg.ini, "menu", "show_hints") && ini_get_int(g_cfg.ini, "menu", "dim_percent", 0) == 30);
+        CHECK(!ini_has(g_cfg.ini, "hotkeys", "quit_hold_ms") && ini_has(g_cfg.ini, "hotkeys", "confirm_quit") && g_cfg.confirm_quit == 0);
+        CHECK(STREQ(ini_get(g_cfg.ini, "pad:one", "cface", ""), "button:7") && STREQ(ini_get(g_cfg.ini, "pad:one", "cface_c_up", ""), "button:3"));
+        CHECK(!ini_has(g_cfg.ini, "pad:one", "modifier") && !ini_has(g_cfg.ini, "pad:one", "preset") && !ini_has(g_cfg.ini, "pad:one", "mod_c_up"));
+        CHECK(!ini_has(g_cfg.ini, "pad:two", "modifier") && !ini_has(g_cfg.ini, "pad:two", "mod_a") && !ini_has(g_cfg.ini, "pad:two", "cface"));
+        CHECK(STREQ(ini_get(g_cfg.ini, "pad:one", "a", ""), "button:0"));
+        CHECK(cfg_load_game(md5) == 0);
+        CHECK(!ini_has(g_cfg.game, "hotkeys", "quit_hold_ms") && ini_get_bool(g_cfg.game, "hotkeys", "confirm_quit", 0) == 1 && g_cfg.confirm_quit == 1);
+        CHECK(STREQ(ini_get(g_cfg.game, "pad:one", "cface", ""), "button:6") && STREQ(ini_get(g_cfg.game, "pad:one", "cface_c_up", ""), "button:2"));
+        CHECK(!ini_has_section(g_cfg.game, "pad:two"));
+        CHECK(cfg_save() == 0);
+        cfg_shutdown();
+        CHECK(cfg_init(dir3) == 0 && cfg_load_game(md5) == 0);          /* what was written is clean and stable */
+        CHECK(g_cfg.confirm_quit == 1 && !ini_has(g_cfg.game, "pad:one", "modifier") && !ini_has(g_cfg.ini, "hotkeys", "quit_hold_ms"));
+        /* an explicit Confirm Quit wins over a leftover hold time */
+        ini_set(g_cfg.ini, "hotkeys", "confirm_quit", "false");
+        ini_set(g_cfg.ini, "hotkeys", "quit_hold_ms", "1000");
+        cfg_shutdown();
+        cfg_init(dir3);
+        CHECK(cfg_save() == 0);
+        cfg_shutdown();
+        {
+            ini_t *i = ini_new();
+            CHECK(ini_load(i, g_cfg.cfg_path) == 0);
+            CHECK(ini_get_bool(i, "hotkeys", "confirm_quit", 1) == 0);
+            ini_free(i);
+        }
+        /* "Save Game Profile": settings counted as the user sees them, and the global values pinned (not the hotkey button / menu combo) */
+        CHECK(cfg_init(dir3) == 0 && cfg_load_game(md5) == 0);
+        ini_set(g_cfg.game, "pad:x", "a", "button:1");
+        ini_set(g_cfg.game, "pad:x", "b", "button:2");
+        ini_set(g_cfg.game, "pad:x", "cface", "none");
+        ini_set(g_cfg.game, "players", "p1", "auto");
+        ini_set(g_cfg.game, "players", "p2", "none");
+        ini_set(g_cfg.game, "foir", "Widescreen", "true");
+        {
+            int before = cfg_game_setting_count(), n;
+            /* confirm_quit, pad:one (2 keys), pad:x (3 keys), the players (2 keys), Widescreen: 9 keys, 5 settings */
+            CHECK(cfg_game_override_count() == 9 && before == 5);
+            n = cfg_pin_profile();
+            CHECK(n > 0 && ini_has(g_cfg.game, "hotkeys", "quick_save") && ini_has(g_cfg.game, "hotkeys", "fast_forward_speed") &&
+                  ini_has(g_cfg.game, "hotkeys", "confirm_quit") && ini_has(g_cfg.game, "input", "soft_tilt_scale") &&
+                  ini_has(g_cfg.game, "states", "autosave_on_quit"));
+            CHECK(!ini_has(g_cfg.game, "hotkeys", "hotkey_button") && !ini_has(g_cfg.game, "menu", "menu_combo") && !ini_has(g_cfg.game, "menu", "dim_percent"));
+            CHECK(cfg_pin_profile() == 0);                                   /* nothing more to pin */
+            CHECK(cfg_game_setting_count() == before + n);
+            CHECK(g_cfg.confirm_quit == 1);                                  /* the pinned value is what is in force */
+        }
         cfg_shutdown();
     }
     printf("%d checks, %d failed\n", l_checks, l_fail);

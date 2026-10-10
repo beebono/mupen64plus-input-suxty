@@ -52,8 +52,14 @@ void ugl_begin_overlay(int w, int h);              /* same, but draws over whate
 void ugl_end(void);                                /* flush batches */
 void ugl_background_draw(int w, int h, float brightness);   /* full-screen frozen frame */
 void ugl_rect(int x, int y, int w, int h, uint32_t rgba);
-void ugl_text(int x, int y, int scale, uint32_t rgba, const char *str);
+/* Two faces: UGL_FONT_ITEM is 8x16 (items, titles), UGL_FONT_HINT is 12x24 (hint / footer text).  Both are drawn at an
+ * integer scale.  The control characters \x01 / \x02 are a down / up arrow. */
+typedef enum { UGL_FONT_ITEM = 0, UGL_FONT_HINT = 1 } ugl_font;
+void ugl_text(int x, int y, int scale, uint32_t rgba, const char *str);              /* UGL_FONT_ITEM */
 int  ugl_text_width(int scale, const char *str);
+void ugl_text_f(ugl_font font, int x, int y, int scale, uint32_t rgba, const char *str);
+int  ugl_text_width_f(ugl_font font, int scale, const char *str);
+int  ugl_glyph_h(ugl_font font);                                                       /* unscaled cell height */
 /* read the default framebuffer back (overlay context, after drawing, before swap).
  * Returned buffer is RGBA bottom-up, owned by gl.c. */
 const uint8_t *ugl_readback(int w, int h);

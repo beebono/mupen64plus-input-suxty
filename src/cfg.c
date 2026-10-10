@@ -20,6 +20,7 @@
 
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <strings.h>
 
@@ -30,6 +31,7 @@
 #include "main.h"
 #include "osal_files.h"
 #include "pad.h"
+#include "padmap.h"
 
 suxty_cfg_t g_cfg;
 
@@ -42,10 +44,12 @@ static const char *l_header =
     "#         recovery_combo  a second combo that ALWAYS opens the menu, so a bad menu_combo can never lock\n"
     "#                      you out (default select+start; 'none' turns it off, at your own risk)\n"
     "#         dim_percent  how dark the frozen game frame is behind the menu (0-90)\n"
-    "#         show_hints   show the button hint footer\n"
     "#         show_toasts  brief on-screen notices (\"Saved\")\n"
     "#         toast_ms     how long they stay (300-10000)\n"
-    "# [input] swap_ab      swap confirm (A) and back (B)\n"
+    "# [input] swap_ab      swap confirm (A) and back (B); not in the menu: a launcher sets it where the marked A button\n"
+    "#                      should confirm (spruce)\n"
+    "#         soft_tilt_scale  stick strength while the Soft Tilt button is held (0.0-1.0, default 0.5); applied after\n"
+    "#                      the deadzone / range, to analog and D-pad-as-stick output alike\n"
     "#         nav_deadzone left-stick travel (%) that counts as a D-pad press (10-90)\n"
     "#         block_game_input  hide hotkey / menu buttons from the game (recommended)\n"
     "# [hotkeys]  Combos are buttons joined with '+'; the word 'hotkey' stands for hotkey_button.\n"
@@ -53,17 +57,18 @@ static const char *l_header =
     "#         quick_save quick_load next_slot prev_slot fast_forward quit   (empty = disabled)\n"
     "#         fast_forward_mode   hold | toggle\n"
     "#         fast_forward_speed  percent (50-1000), or 0 for unlimited\n"
-    "#         quit_hold_ms        how long the quit combo must be held\n"
+    "#         confirm_quit        true: the quit combo must be pressed twice within 2 s (a notice after the first)\n"
     "# [states] autosave_on_quit  Quit first saves '<state name>.auto.st' (never a numbered slot); off by default.\n"
     "#         Resume from it with your front-end, e.g. mupen64plus --savestate <savedir>/<state name>.auto.st\n"
     "# [audio] volume       0-100, applied when the game starts (absent: whatever the audio plugin starts with)\n"
     "# [foir]  Video-Foir options of the foir video plugin, by their [Video-Foir] names (Widescreen, Filter, ...);\n"
     "#         applied through foir's interface when the game starts; mupen64plus.cfg is never written by them\n"
     "# [players]  p1..p4 = auto | none | <pad name>: which controller drives which N64 player\n"
-    "# [pad:<pad name>]  the N64 mapping of one pad model (written by Controls in the menu): preset, deadzone,\n"
-    "#         peak, modifier = button:N | hat:N:up | axis:N+ | none, and one key per N64 input (a b z start l r\n"
-    "#         dpad_up .. c_up .. stick_left ..) = button:N | hat:N:up | axis:N- | none; mod_<key> is the same\n"
-    "#         while the modifier is held";
+    "# [pad:<pad name>]  the N64 mapping of one pad model (written by Controls in the menu): deadzone, peak,\n"
+    "#         dpad_swap (true: the D-pad channels and the stick channels are exchanged), one key per N64 input\n"
+    "#         (a b z start l r dpad_up .. c_up .. stick_left ..) = button:N | hat:N:up | axis:N- | none, and the\n"
+    "#         hold buttons cface (the face buttons act as C buttons while it is held; cface_c_up .. say which\n"
+    "#         control becomes which C button) and softtilt (stick strength x soft_tilt_scale while held)";
 
 static const char *l_game_header =
     "# mupen64plus-input-suxty: per-game overrides for one ROM (the file name is the ROM's MD5)\n"
@@ -73,11 +78,30 @@ static const char *l_game_header =
     "# [hotkeys] [states] [input] [menu] [audio] [foir]   the same keys as suxty.cfg (volume = 0-100 is in [audio])\n"
     "# [players], [pad:<pad name>]                 controller choice / N64 mapping of one pad model";
 
-/* Keys and sections of earlier versions (the front-end build) that no longer mean anything.  They are dropped when a
- * file is loaded, so an old suxty.cfg / game file loads without complaint. */
+/* Keys and sections of earlier versions (the front-end build, and the menu before the refinement pass) that no longer mean
+ * anything.  They are dropped when a file is loaded, so an old suxty.cfg / game file loads without complaint.
+ * (show_hints: hints are always on now.  quit_hold_ms becomes confirm_quit, see migrate().) */
 static const char *const l_obsolete_keys[][2] = {
-    { "input", "remap_input" }
+    { "input", "remap_input" },
+    { "menu", "show_hints" }
 };
+
+/* Settings that changed meaning: "Quit hold" (how long the quit combo is held) became "Confirm Quit" (press it twice), a hold of
+ * 0 ("Instant") being off and any other being on; the pad sections' modifier layer became the C-Face shift (padmap.c).  The
+ * game files are the same, key by key. */
+static int migrate(ini_t *ini)
+{
+    int n = 0;
+    if (ini == NULL)
+        return 0;
+    if (ini_has(ini, "hotkeys", "quit_hold_ms"))
+    {
+        if (!ini_has(ini, "hotkeys", "confirm_quit"))
+            ini_set_bool(ini, "hotkeys", "confirm_quit", ini_get_int(ini, "hotkeys", "quit_hold_ms", 1000) > 0);
+        n += ini_remove(ini, "hotkeys", "quit_hold_ms");
+    }
+    return n + padmap_migrate_ini(ini);
+}
 
 static int prune_obsolete(ini_t *ini)
 {
@@ -141,6 +165,7 @@ int cfg_init(const char *config_dir)
     else
     {
         int removed = prune_obsolete(g_cfg.ini);
+        migrate(g_cfg.ini);
         if (ini_has(g_cfg.ini, "general", "version") && ini_get_int(g_cfg.ini, "general", "version", 1) < CFG_VERSION)
         {
             /* the front-end build saved the auto slot on every quit, for --resume; now it blocks Quit until the save
@@ -152,15 +177,15 @@ int cfg_init(const char *config_dir)
             DebugMessage(M64MSG_INFO, "suxty.cfg: dropped %d setting(s) of the old front-end build", removed);
     }
 
-    ini_default(g_cfg.ini, "general", "version", "2");
+    ini_default(g_cfg.ini, "general", "version", "3");
     ini_default(g_cfg.ini, "menu", "menu_combo", "select+start");
     ini_default(g_cfg.ini, "menu", "recovery_combo", "select+start");
     ini_default(g_cfg.ini, "menu", "dim_percent", "65");
-    ini_default(g_cfg.ini, "menu", "show_hints", "true");
     ini_default(g_cfg.ini, "input", "swap_ab", "false");
     ini_default(g_cfg.ini, "menu", "show_toasts", "true");
     ini_default(g_cfg.ini, "menu", "toast_ms", "1800");
     ini_default(g_cfg.ini, "input", "nav_deadzone", "50");
+    ini_default(g_cfg.ini, "input", "soft_tilt_scale", "0.5");
     ini_default(g_cfg.ini, "input", "block_game_input", "true");
     ini_default(g_cfg.ini, "hotkeys", "hotkey_button", "select");
     ini_default(g_cfg.ini, "hotkeys", "quick_save", "hotkey+r");
@@ -171,7 +196,7 @@ int cfg_init(const char *config_dir)
     ini_default(g_cfg.ini, "hotkeys", "quit", "hotkey+b");
     ini_default(g_cfg.ini, "hotkeys", "fast_forward_mode", "hold");
     ini_default(g_cfg.ini, "hotkeys", "fast_forward_speed", "300");
-    ini_default(g_cfg.ini, "hotkeys", "quit_hold_ms", "1000");
+    ini_default(g_cfg.ini, "hotkeys", "confirm_quit", "true");
     ini_default(g_cfg.ini, "states", "autosave_on_quit", "false");
 
     cfg_apply();
@@ -250,8 +275,15 @@ void cfg_apply(void)
     {
         int sp = cfg_get_int("hotkeys", "fast_forward_speed", 300);
         g_cfg.ff_speed = sp <= 0 ? 0 : sp < 50 ? 50 : sp > 1000 ? 1000 : sp;
-        sp = cfg_get_int("hotkeys", "quit_hold_ms", 1000);
-        g_cfg.quit_hold_ms = sp < 0 ? 0 : sp > 5000 ? 5000 : sp;
+    }
+    g_cfg.confirm_quit = cfg_get_bool("hotkeys", "confirm_quit", 1);
+    {
+        const char *txt = cfg_get("input", "soft_tilt_scale", "0.5");
+        char *end = NULL;
+        double t = strtod(txt, &end);
+        if (end == txt || *end != 0)
+            t = 0.5;                                                /* not a number: the default */
+        g_cfg.soft_tilt_pct = t <= 0.0 ? 0 : t >= 1.0 ? 100 : (int) (t * 100.0 + 0.5);
     }
     g_cfg.block_game_input = cfg_get_bool("input", "block_game_input", 1);
     g_cfg.autosave_on_quit = cfg_get_bool("states", "autosave_on_quit", 0);
@@ -261,7 +293,6 @@ void cfg_apply(void)
     toast_set_duration_ms(g_cfg.toast_ms);
 
     g_cfg.dim_percent = dim < 0 ? 0 : dim > 90 ? 90 : dim;
-    g_cfg.show_hints = cfg_get_bool("menu", "show_hints", 1);
     g_cfg.swap_ab = cfg_get_bool("input", "swap_ab", 0);
     g_cfg.nav_deadzone = cfg_get_int("input", "nav_deadzone", 50);
 
@@ -357,7 +388,7 @@ int cfg_load_game(const char *md5)
         return -1;
     if (ini_load(g_cfg.game, g_cfg.game_path) == 0)
     {
-        int removed = prune_obsolete(g_cfg.game);
+        int removed = prune_obsolete(g_cfg.game) + migrate(g_cfg.game);
         DebugMessage(M64MSG_INFO, "game profile: %s (%d overrides%s)", g_cfg.game_path, ini_count(g_cfg.game),
                      removed > 0 ? ", old front-end settings dropped" : "");
     }
@@ -377,10 +408,76 @@ int cfg_game_override_count(void)
     return g_cfg.game != NULL ? ini_count(g_cfg.game) : 0;
 }
 
+/* what the user would call a setting: every key, except that a pad's whole mapping and the player choices are one each */
+int cfg_game_setting_count(void)
+{
+    const char *sec, *key;
+    char seen[16][128];
+    int i, n = 0, nseen = 0, players = 0;
+
+    if (g_cfg.game == NULL)
+        return 0;
+    for (i = 0; ini_entry(g_cfg.game, i, &sec, &key, NULL); i++)
+    {
+        if (strncmp(sec, "pad:", 4) == 0)
+        {
+            int j, known = 0;
+            for (j = 0; j < nseen; j++)
+                known |= strcmp(seen[j], sec) == 0;
+            if (!known)
+            {
+                if (nseen < 16)
+                    snprintf(seen[nseen++], sizeof(seen[0]), "%s", sec);
+                n++;
+            }
+        }
+        else if (strcmp(sec, "players") == 0)
+        {
+            if (!players)
+                n++;
+            players = 1;
+        }
+        else
+            n++;
+    }
+    return n;
+}
+
+/* the settings "Save Game Profile" pins (the hotkey button and the menu combo stay with the global layer: they are how you
+ * get into this menu) */
+static const char *const l_profile_keys[][2] = {
+    { "states", "autosave_on_quit" },
+    { "hotkeys", "quick_save" }, { "hotkeys", "quick_load" }, { "hotkeys", "next_slot" }, { "hotkeys", "prev_slot" },
+    { "hotkeys", "fast_forward" }, { "hotkeys", "quit" }, { "hotkeys", "fast_forward_mode" },
+    { "hotkeys", "fast_forward_speed" }, { "hotkeys", "confirm_quit" },
+    { "input", "soft_tilt_scale" }, { "audio", "volume" }
+};
+
+int cfg_pin_profile(void)
+{
+    size_t i;
+    int n = 0;
+    if (g_cfg.game == NULL)
+        return 0;
+    for (i = 0; i < sizeof(l_profile_keys) / sizeof(l_profile_keys[0]); i++)
+    {
+        const char *sec = l_profile_keys[i][0], *key = l_profile_keys[i][1];
+        if (!cfg_key_overridable(sec, key))
+            continue;
+        if (!ini_has(g_cfg.game, sec, key) && ini_has(g_cfg.ini, sec, key))
+        {
+            ini_set(g_cfg.game, sec, key, ini_get(g_cfg.ini, sec, key, ""));
+            n++;
+        }
+    }
+    cfg_apply();
+    return n;
+}
+
 int cfg_key_overridable(const char *section, const char *key)
 {
     static const char *const global_only[][2] = {
-        { "menu", "dim_percent" }, { "menu", "show_hints" }, { "menu", "show_toasts" }, { "menu", "toast_ms" },
+        { "menu", "dim_percent" }, { "menu", "show_toasts" }, { "menu", "toast_ms" },
         { "menu", "recovery_combo" },                       /* lock-out protection must not depend on the game */
         { "input", "swap_ab" }, { "input", "nav_deadzone" }, { "input", "block_game_input" },
         { "general", "version" }

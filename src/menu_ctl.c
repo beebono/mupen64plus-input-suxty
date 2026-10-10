@@ -18,9 +18,9 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The controller and hotkey pages of the pause menu: player / pad choice, presets, button mapping with the
- * capture prompt, the modifier layer, a controller test, and the hotkey combo assignment with its lock-out
- * guards.  Drawn by menu.c's page stack; see menu_int.h. */
+/* The controller and hotkey pages of the pause menu: player / pad choice, the D-pad toggle, button mapping with the
+ * capture prompt (including the C-Face shift and Soft Tilt hold buttons), a controller test, and the hotkey combo
+ * assignment with its lock-out guards.  Drawn by menu.c's page stack; see menu_int.h. */
 
 #include <stdio.h>
 #include <string.h>
@@ -36,8 +36,9 @@
 #include "toast.h"
 #include "ui.h"
 
-#define CAPTURE_TIMEOUT_MS   6000u     /* a control capture gives up after this long without input */
-#define COMBO_IDLE_MS        8000u     /* a combo capture gives up after this long without a button */
+#define CAPTURE_TIMEOUT_MS   5000u     /* a control capture gives up after this long without input */
+#define COMBO_IDLE_MS        7000u     /* a combo capture gives up after this long without a button */
+#define TEST_EXIT_HOLD_MS    3000u     /* Test controller: hold B this long to leave (a tap of B is a button to test) */
 #define CONFIRM_TIMEOUT_MS  10000u     /* a menu-combo change must be proven by using it within this time */
 
 static int  l_player;                  /* the player the Controls pages edit, 0-3 */
@@ -54,35 +55,28 @@ static int popcount(uint32_t v) { return __builtin_popcount(v); }
 
 static int scope_game(void) { return g_cfg.scope == CFG_SCOPE_GAME; }
 
-const char *menu_scoped_title(char *buf, size_t size, const char *base)
-{
-    snprintf(buf, size, "%s%s", base, scope_game() ? " (game)" : "");
-    return buf;
-}
-
-int menu_mark_kind(int overridden)
-{
-    return overridden ? (scope_game() ? 1 : 2) : 0;
-}
-
 /* ---- capture of one physical control ------------------------------------------------------------ */
 
+#define CAP_CFACE (-1)                 /* the target of a capture that is not an N64 input: the hold buttons */
+#define CAP_TILT  (-2)
+
 static struct {
-    int      layer;
-    int      ctl;                      /* n64_ctl, or -1 for the modifier button */
+    int      ctl;                      /* n64_ctl (as the Buttons page lists it), CAP_CFACE or CAP_TILT */
     uint32_t deadline;
 } l_cap;
 
-static const char *ctl_title(int layer, int ctl, char *buf, size_t size)
+static const char *ctl_title(int ctl, char *buf, size_t size)
 {
-    if (ctl < 0)
-        snprintf(buf, size, "Modifier button");
+    if (ctl == CAP_CFACE)
+        snprintf(buf, size, "C-Face shift");
+    else if (ctl == CAP_TILT)
+        snprintf(buf, size, "Soft Tilt");
     else
-        snprintf(buf, size, "N64 %s%s", n64_ctl_name((n64_ctl) ctl), layer ? " (with modifier)" : "");
+        snprintf(buf, size, "N64 %s", n64_ctl_name((n64_ctl) ctl));
     return buf;
 }
 
-static void start_capture(int layer, int ctl)
+static void start_capture(int ctl)
 {
     int pad = remap_player_pad(l_player);
     if (pad < 0)
@@ -90,7 +84,6 @@ static void start_capture(int layer, int ctl)
         set_msg("No controller for this player", -1);
         return;
     }
-    l_cap.layer = layer;
     l_cap.ctl = ctl;
     l_cap.deadline = SDL_GetTicks() + CAPTURE_TIMEOUT_MS;
     pad_capture_begin(pad);
@@ -102,38 +95,57 @@ static n64_ctl opposite(n64_ctl c)
     return c == N64_SLEFT ? N64_SRIGHT : c == N64_SRIGHT ? N64_SLEFT : c == N64_SUP ? N64_SDOWN : N64_SUP;
 }
 
-/* binds `s` to the target of the capture; a control can only drive one input per layer, so it moves */
-static void assign_src(int p, int layer, int ctl, const padsrc *s)
+/* binds `s` to the target of the capture; a control can only drive one input (or hold button), so it moves */
+static void assign_src(int p, int ctl, const padsrc *s)
 {
     padmap *m = remap_edit(p);
     char what[112], text[48], from[32] = "";
+    pad_layout lay;
+    int have_lay = pad_layout_get(remap_player_pad(p), &lay) == 0;
+    int k;
 
-    if (ctl < 0)
-        m->modifier = *s;
+    /* the same control used elsewhere goes: another input, or a hold button */
+    for (k = 0; k < N64_NUM; k++)
+        if (k != (ctl >= 0 ? (int) padmap_chan(m, (n64_ctl) ctl) : -1) && padsrc_same(&m->src[k], s))
+        {
+            memset(&m->src[k], 0, sizeof(padsrc));
+            snprintf(from, sizeof(from), "%s", n64_ctl_name(padmap_chan(m, (n64_ctl) k)));
+        }
+    if (ctl != CAP_CFACE && padsrc_same(&m->cface, s))
+    {
+        padmap_set_cface(m, NULL, &(padsrc) { 0 });
+        snprintf(from, sizeof(from), "C-Face shift");
+    }
+    if (ctl != CAP_TILT && padsrc_same(&m->softtilt, s))
+    {
+        memset(&m->softtilt, 0, sizeof(padsrc));
+        snprintf(from, sizeof(from), "Soft Tilt");
+    }
+    if (ctl == CAP_CFACE)
+        padmap_set_cface(m, have_lay ? &lay : NULL, s);
+    else if (ctl == CAP_TILT)
+        m->softtilt = *s;
     else
     {
-        int k;
-        for (k = 0; k < N64_NUM; k++)
-            if (k != ctl && padsrc_same(&m->src[layer][k], s))
-            {
-                memset(&m->src[layer][k], 0, sizeof(padsrc));
-                snprintf(from, sizeof(from), "%s", n64_ctl_name((n64_ctl) k));
-            }
-        m->src[layer][ctl] = *s;
+        n64_ctl c = padmap_chan(m, (n64_ctl) ctl);
+        m->src[c] = *s;
         /* "Stick Left" captured as axis 0-: offer axis 0+ for "Stick Right" if that is still free */
-        if (ctl >= N64_SLEFT && s->type == PAD_BIND_AXIS && m->src[layer][opposite((n64_ctl) ctl)].type == PAD_BIND_NONE)
+        if (ctl >= N64_SLEFT && s->type == PAD_BIND_AXIS)
         {
-            padsrc o = *s;
-            o.dir = (int8_t) -s->dir;
-            m->src[layer][opposite((n64_ctl) ctl)] = o;
+            n64_ctl o = padmap_chan(m, opposite((n64_ctl) ctl));
+            if (m->src[o].type == PAD_BIND_NONE)
+            {
+                padsrc op = *s;
+                op.dir = (int8_t) -s->dir;
+                m->src[o] = op;
+            }
         }
     }
-    snprintf(m->preset, sizeof(m->preset), "custom");
     remap_commit(p);
     pad_format_src(remap_player_pad(p), s, text, sizeof(text));
-    snprintf(what, sizeof(what), "%s = %s", ctl < 0 ? "Modifier" : n64_ctl_name((n64_ctl) ctl), text);
+    snprintf(what, sizeof(what), "%s = %s", ctl == CAP_CFACE ? "C-Face shift" : ctl == CAP_TILT ? "Soft Tilt" : n64_ctl_name((n64_ctl) ctl), text);
     if (from[0])
-        snprintf(l_msg, sizeof(l_msg), "%s (moved from %s)", what, from);
+        snprintf(l_msg, sizeof(l_msg), "%s (from %s)", what, from);
     else
         snprintf(l_msg, sizeof(l_msg), "%s", what);
     l_msg_kind = 1;
@@ -149,8 +161,8 @@ static void page_capture(void)
     {
         char who[96];
         snprintf(who, sizeof(who), "Player %d: %s", l_player + 1, pad_name(remap_player_pad(l_player)));
-        ui_panel_begin_ex("Remap", 10, 76);
-        ui_label_hi(ctl_title(l_cap.layer, l_cap.ctl, title, sizeof(title)));
+        ui_panel_begin_ex("Remap", 10, UI_W_WIDE);
+        ui_label_hi(ctl_title(l_cap.ctl, title, sizeof(title)));
         ui_label("Press the control to use");
         ui_label(who);
         ui_progress(left > 0 ? (int) (left * 1000 / (int32_t) CAPTURE_TIMEOUT_MS) : 0);
@@ -160,7 +172,7 @@ static void page_capture(void)
 
     if (pad_capture_poll(&s, &pad_idx))
     {
-        assign_src(l_player, l_cap.layer, l_cap.ctl, &s);
+        assign_src(l_player, l_cap.ctl, &s);
         menu_pop();
     }
     else if (left <= 0)
@@ -184,15 +196,19 @@ static void pad_status(char *out, size_t size)
 static void page_controls(int back)
 {
     static const char *const players[4] = { "1", "2", "3", "4" };
+    static const char *const dpad_names[2] = { "D-pad", "Stick" };
     char nbuf[PAD_MAX_PADS + 2][72];
     const char *names[PAD_MAX_PADS + 2];
     int nn = 0, cur = 0, i, pi = l_player, p;
     const char *want;
     char info[96], title[40];
     const padmap *m;
-    int dz, pk, np = pad_count(), mapmark;
+    int dz, pk, np = pad_count(), mapmark, rows, role;
+    pad_layout lay;
 
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Controls"), 9, 1);
+    rows = 8 + (scope_game() ? 1 : 0);
+    ui_next_panel_width(UI_W_WIDE);
+    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Controls"), rows, 1);
     if (ui_choice("Player", &pi, players, 4))
     {
         l_player = pi;
@@ -227,14 +243,17 @@ static void page_controls(int back)
     }
     ui_mark_last(menu_mark_kind(remap_player_want_overridden(p)));
 
-    if (ui_item("Presets", ">") == 1)
-        menu_push(PAGE_PRESETS);
-    ui_mark_last(mapmark);
     if (ui_item("Buttons", ">") == 1)
         menu_push(PAGE_BUTTONS);
     ui_mark_last(mapmark);
-    if (ui_item("Modifier layer", m->modifier.type != PAD_BIND_NONE ? ">" : "off >") == 1)
-        menu_push(PAGE_MODLAYER);
+    /* what the D-pad of this pad drives: the N64 D-pad, or the stick (a software swap of the two groups of channels) */
+    role = padmap_dpad_is_stick(m, remap_player_pad(p) >= 0 && pad_layout_get(remap_player_pad(p), &lay) == 0 ? &lay : NULL);
+    if (ui_choice("D-pad acts as", &role, dpad_names, 2))
+    {
+        remap_edit(p)->dpad_swap = !m->dpad_swap;
+        remap_commit(p);
+        set_msg(role ? "D-pad = stick, stick = D-pad" : "D-pad = N64 D-pad", 1);
+    }
     ui_mark_last(mapmark);
     dz = m->deadzone;
     pk = m->peak;
@@ -252,6 +271,8 @@ static void page_controls(int back)
     ui_mark_last(mapmark);
     if (ui_item("Test controller", ">") == 1)
         menu_push(PAGE_TEST);
+    if (ui_button_dis("Reset to default mapping", remap_player_pad(p) < 0) > 0)
+        menu_push(PAGE_CONFIRM_MAPRESET);
     if (scope_game())
     {
         if (ui_button_dis("Reset to global", !(remap_pad_overridden(p) || remap_player_want_overridden(p))) > 0)
@@ -264,26 +285,25 @@ static void page_controls(int back)
         ui_status_bar(l_msg, l_msg_kind);
     else if (!remap_enabled())
         ui_status_bar("No gamepad found", -1);
-    else if (!scope_game() && (remap_pad_overridden(p) || remap_player_want_overridden(p)))
-        ui_status_bar("This game has its own settings for this pad", 0);
+    else if (ui_focus_mark() != 0)
+        ui_status_bar(menu_scope_status(), 0);
     else
     {
         pad_status(info, sizeof(info));
         ui_status_bar(info, 0);
     }
-    ui_panel_end("A Select   Left/Right Change   B Back");
+    ui_panel_end(scope_game() ? "A Select  <> Change  X Reset  B Back" : "A Select  <> Change  B Back");
     if (back)
         menu_pop();
 }
 
 static void page_confirm_ctl_reset(int back)
 {
-    ui_panel_begin_ex("Confirm", 8, 72);
-    ui_label("Reset this game's controls");
-    ui_label("to the global ones?");
-    if (ui_button("No"))
-        menu_pop();
-    if (ui_button("Yes"))
+    ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
+    ui_grid(2);
+    ui_label("Reset this game's");
+    ui_label("controls to global?");
+    if (menu_yes_no())
     {
         int n = remap_reset_game();
         remap_flush();
@@ -295,59 +315,21 @@ static void page_confirm_ctl_reset(int back)
         menu_pop();
 }
 
-/* ---- presets ------------------------------------------------------------------------------------ */
+/* ---- reset to the default mapping ------------------------------------------------------------------ */
 
-static int l_preset_sel;
-
-static void page_presets(int back)
+static void page_confirm_mapreset(int back)
 {
-    int i;
-    const padmap *m = remap_get(l_player);
-
-    ui_panel_begin_scroll("Presets", 6, 1);
-    for (i = 0; i < PRESET_NUM; i++)
-    {
-        int cur = (i == PRESET_DEFAULT) ? strcmp(m->preset, "default") == 0 : strcmp(m->preset, padmap_preset_name(i)) == 0;
-        if (ui_item(padmap_preset_name(i), cur ? "(current)" : "") == 1)
-        {
-            l_preset_sel = i;
-            menu_push(PAGE_CONFIRM_PRESET);
-        }
-    }
-    if (ui_button("Back"))
-        menu_pop();
-    {
-        int f = ui_focus_get();
-        ui_status_bar(f >= 0 && f < PRESET_NUM ? padmap_preset_desc(f) : "", 0);
-    }
-    ui_panel_end("A Apply   B Back");
-    if (back)
-        menu_pop();
-}
-
-static void page_confirm_preset(int back)
-{
-    char t[64];
-    ui_panel_begin_ex("Apply preset", 8, 72);
-    ui_label_hi(padmap_preset_name(l_preset_sel));
-    snprintf(t, sizeof(t), "Replaces player %d's buttons", l_player + 1);
-    ui_label(t);
-    if (ui_button("No"))
-        menu_pop();
-    if (ui_button("Yes"))
+    ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
+    ui_grid(2);
+    ui_label("Reset the mapping?");
+    ui_label("(to this pad's default)");
+    if (menu_yes_no())
     {
         char msg[96];
-        if (remap_apply_preset(l_player, l_preset_sel, msg, sizeof(msg)) == 0)
-        {
-            snprintf(t, sizeof(t), "Preset: %s", padmap_preset_name(l_preset_sel));
-            if (msg[0])
-                set_msg(msg, 0);
-            else
-                set_msg(t, 1);
-        }
+        if (remap_default_mapping(l_player, msg, sizeof(msg)) == 0)
+            set_msg(msg[0] ? msg : "Back to the default mapping", msg[0] ? 0 : 1);
         else
             set_msg(msg, -1);
-        menu_pop();
         menu_pop();
     }
     ui_panel_end("A Select   B Back");
@@ -355,58 +337,80 @@ static void page_confirm_preset(int back)
         menu_pop();
 }
 
-/* ---- button mapping (both layers) -------------------------------------------------------------- */
+/* ---- button mapping ---------------------------------------------------------------------------------- */
 
-static void page_map(int layer, int back)
+static void page_map(int back)
 {
     char title[40], text[56];
     int p = l_player, n, r;
     const padmap *m = remap_get(p);
     int pad = remap_player_pad(p);
 
-    snprintf(title, sizeof(title), "%s - P%d%s", layer ? "Modifier layer" : "Buttons", p + 1, scope_game() ? " (game)" : "");
-    ui_panel_begin_scroll(title, 9, 1);
-    if (layer)
-    {
-        if (m->modifier.type != PAD_BIND_NONE)
-            pad_format_src(pad, &m->modifier, text, sizeof(text));
-        else
-            snprintf(text, sizeof(text), "-");
-        r = ui_item("Modifier", text);
-        if (r == 1)
-            start_capture(1, -1);
-        else if (r == 2)
-        {
-            memset(&remap_edit(p)->modifier, 0, sizeof(padsrc));
-            remap_commit(p);
-            set_msg("Modifier cleared", 0);
-        }
-    }
+    snprintf(title, sizeof(title), "Buttons - P%d%s", p + 1, scope_game() ? " (game)" : "");
+    ui_next_panel_width(UI_W_WIDE);
+    ui_panel_begin_scroll(title, N64_NUM + 3, 1);
     for (n = 0; n < N64_NUM; n++)
     {
-        const padsrc *s = &m->src[layer][n];
+        /* with the D-pad swap on, the row of the D-pad shows (and edits) what the stick has stored, and the other way round */
+        const padsrc *s = &m->src[padmap_chan(m, (n64_ctl) n)];
         if (s->type != PAD_BIND_NONE)
             pad_format_src(pad, s, text, sizeof(text));
         else
-            snprintf(text, sizeof(text), layer ? "as normal" : "-");
+            snprintf(text, sizeof(text), "-");
         r = ui_item(n64_ctl_name((n64_ctl) n), text);
         if (r == 1)
-            start_capture(layer, n);
+            start_capture(n);
         else if (r == 2 && s->type != PAD_BIND_NONE)
         {
-            memset(&remap_edit(p)->src[layer][n], 0, sizeof(padsrc));
-            snprintf(remap_edit(p)->preset, sizeof(remap_edit(p)->preset), "custom");
+            memset(&remap_edit(p)->src[padmap_chan(m, (n64_ctl) n)], 0, sizeof(padsrc));
             remap_commit(p);
             snprintf(text, sizeof(text), "%s cleared", n64_ctl_name((n64_ctl) n));
             set_msg(text, 0);
         }
     }
+    /* the two hold buttons: while C-Face shift is held the face buttons act as C buttons; Soft Tilt halves the stick */
+    if (m->cface.type != PAD_BIND_NONE)
+        pad_format_src(pad, &m->cface, text, sizeof(text));
+    else
+        snprintf(text, sizeof(text), "-");
+    r = ui_item("C-Face shift", text);
+    if (r == 1)
+        start_capture(CAP_CFACE);
+    else if (r == 2 && m->cface.type != PAD_BIND_NONE)
+    {
+        padmap_set_cface(remap_edit(p), NULL, NULL);
+        remap_commit(p);
+        set_msg("C-Face shift cleared", 0);
+    }
+    if (m->softtilt.type != PAD_BIND_NONE)
+        pad_format_src(pad, &m->softtilt, text, sizeof(text));
+    else
+        snprintf(text, sizeof(text), "-");
+    r = ui_item("Soft Tilt", text);
+    if (r == 1)
+        start_capture(CAP_TILT);
+    else if (r == 2 && m->softtilt.type != PAD_BIND_NONE)
+    {
+        memset(&remap_edit(p)->softtilt, 0, sizeof(padsrc));
+        remap_commit(p);
+        set_msg("Soft Tilt cleared", 0);
+    }
     if (ui_button("Back"))
         menu_pop();
     if (l_msg[0])
         ui_status_bar(l_msg, l_msg_kind);
-    else if (layer)
-        ui_status_bar("Held modifier: these replace the normal buttons", 0);
+    else if (ui_focus_get() == N64_NUM)
+        ui_status_bar("Hold it: the face buttons act as C", 0);
+    else if (ui_focus_get() == N64_NUM + 1)
+        ui_status_bar("Hold it: the stick is halved", 0);
+    else if (ui_focus_mark() != 0)
+        ui_status_bar(menu_scope_status(), 0);
+    else
+    {
+        char info[96];
+        pad_status(info, sizeof(info));
+        ui_status_bar(info, 0);
+    }
     ui_panel_end("A Remap   X Clear   B Back");
     if (back)
         menu_pop();
@@ -429,30 +433,52 @@ static void join_names(char *out, size_t size, const char *prefix, uint32_t bits
         snprintf(out + n, n < size ? size - n : 0, "-");
 }
 
-static void page_test(int back)
+static uint32_t l_test_hold;           /* when B went down on the Test page (0 = not held) */
+
+static void page_test(uint32_t held)
 {
     n64_state st;
-    char l1[64], l2[64], l3[64], l4[64];
+    char l1[64], l2[64], l3[64], l4[64], l5[48];
+    const char *cells[3], *cells2[3];
     static const char *const face[] = { "A", "B", "Z", "Start", "L", "R" };
     static const char *const dir[] = { "Up", "Down", "Left", "Right" };
+    uint32_t now = SDL_GetTicks();
+    int permille = 0, n2 = 1;
 
     remap_probe(l_player, &st);
-    join_names(l1, sizeof(l1), "", st.buttons, N64_A, 6, face);
+    join_names(l1, sizeof(l1), "BTN: ", st.buttons, N64_A, 6, face);
     join_names(l2, sizeof(l2), "D-pad: ", st.buttons, N64_DUP, 4, dir);
     join_names(l3, sizeof(l3), "C: ", st.buttons, N64_CUP, 4, dir);
-    snprintf(l4, sizeof(l4), "Stick %+4d %+4d%s", st.sx * 80 / 32767, -st.sy * 80 / 32767, st.mod ? "  [mod]" : "");
+    snprintf(l4, sizeof(l4), "Stick %+d %+d", st.sx * 80 / 32767, -st.sy * 80 / 32767);
+    cells[0] = l1; cells[1] = l2; cells[2] = l3;
+    cells2[0] = l4;
+    if (st.cshift)
+        cells2[n2++] = "C-Face";
+    if (st.tilt)
+        cells2[n2++] = "Soft Tilt";
 
-    ui_panel_begin("Test controller", 6);
-    ui_label_hi(l1);
-    ui_label(l2);
-    ui_label(l3);
-    ui_label(l4);
-    ui_label(remap_player_pad(l_player) >= 0 ? "Press buttons on the pad" : "No controller for this player");
-    if (ui_button("Back"))
+    /* B is an N64 button here, so a tap must not leave: hold it */
+    if (held & PADBIT(PAD_B))
+    {
+        if (l_test_hold == 0)
+            l_test_hold = now ? now : 1;
+        permille = (int) ((now - l_test_hold) * 1000u / TEST_EXIT_HOLD_MS);
+    }
+    else
+        l_test_hold = 0;
+
+    ui_panel_begin_ex("Test controller", 8, UI_W_DIALOG);
+    ui_text_cells(cells, 3);
+    ui_text_cells(cells2, n2);
+    snprintf(l5, sizeof(l5), "%s", remap_player_pad(l_player) >= 0 ? "Press buttons on the pad" : "No pad for this player");
+    ui_label(l5);
+    ui_hold_bar("Hold B 3 sec.", permille);
+    ui_panel_end("Hold B 3 sec. to go back");
+    if (l_test_hold != 0 && now - l_test_hold >= TEST_EXIT_HOLD_MS)
+    {
+        l_test_hold = 0;
         menu_pop();
-    ui_panel_end("What the game would see   B Back");
-    if (back)
-        menu_pop();
+    }
 }
 
 /* ---- hotkeys ---------------------------------------------------------------------------------- */
@@ -650,7 +676,7 @@ static void commit_combo(int idx, uint32_t mask)
     if (!scope_game() && idx <= 1 && (cfg_overridden("menu", "menu_combo") || cfg_overridden("hotkeys", "hotkey_button")))
     {
         /* this session would not even use the new combo, so it could not be proven here */
-        set_msg("This game has its own menu/hotkey button", -1);
+        set_msg("This game has its own menu combo", -1);
         return;
     }
     snprintf(old_menu, sizeof(old_menu), "%s", cfg_get_scoped("menu", "menu_combo", "select+start"));
@@ -718,7 +744,7 @@ static void page_combo_capture(uint32_t held)
     snprintf(title, sizeof(title), "Set: %s", l_hk[l_cc.idx].label);
     cfg_combo_display(l_cc.acc | eff, disp, sizeof(disp));
 
-    ui_panel_begin_ex("Hotkey", 10, 76);
+    ui_panel_begin_ex("Hotkey", 10, UI_W_WIDE);
     ui_label_hi(title);
     ui_label(l_cc.idx == 0 ? "Press the hotkey button" : "Hold the buttons, then let go");
     ui_label_hi((l_cc.acc | eff) ? disp : "...");
@@ -746,7 +772,7 @@ static void page_combo_confirm(uint32_t pressed)
 
     cfg_combo_display(g_cfg.menu_combo, disp, sizeof(disp));
     snprintf(t, sizeof(t), "Reverting in %d s", left > 0 ? (left + 999) / 1000 : 0);
-    ui_panel_begin_ex("Keep this menu combo?", 10, 80);
+    ui_panel_begin_ex("Keep this menu combo?", 10, UI_W_WIDE);
     ui_label("Press the new combo now:");
     ui_label_hi(disp);
     ui_progress(left > 0 ? (int) (left * 1000 / (int32_t) CONFIRM_TIMEOUT_MS) : 0);
@@ -805,7 +831,7 @@ static void page_hotkeys(uint32_t held, int back)
     char disp[48], title[40];
     uint32_t hot = scoped_hot();
 
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Hotkeys"), 9, 1);
+    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Hotkeys"), HK_COUNT + 2, 1);
     for (i = 0; i < HK_COUNT; i++)
     {
         uint32_t mask = scoped_mask(i, hot);
@@ -836,7 +862,7 @@ static void page_hotkeys(uint32_t held, int back)
             }
         }
     }
-    if (ui_button(scope_game() ? "Reset to global" : "Reset to defaults"))
+    if (ui_button_center("Reset All"))
         reset_hotkeys();
     if (ui_button("Back"))
         menu_pop();
@@ -846,12 +872,14 @@ static void page_hotkeys(uint32_t held, int back)
     {
         char rc[48], t[96];
         cfg_combo_display(g_cfg.recovery_combo, rc, sizeof(rc));
-        snprintf(t, sizeof(t), g_cfg.recovery_combo ? "%s also always opens the menu" : "No recovery combo set", rc);
+        snprintf(t, sizeof(t), g_cfg.recovery_combo ? "%s always opens the menu" : "No recovery combo set", rc);
         ui_status_bar(t, 0);
     }
+    else if (ui_focus_mark() != 0)
+        ui_status_bar(menu_scope_status(), 0);
     else
-        ui_status_bar(scope_game() ? "Green bar: this game's own hotkey" : "Hold the combo, then let go", 0);
-    ui_panel_end(scope_game() ? "A Change   X Reset/Clear   B Back" : "A Change   X Clear   B Back");
+        ui_status_bar("Hold the combo, then let go", 0);
+    ui_panel_end(scope_game() ? "A Change  X Reset/Clear  B Back" : "A Change  X Clear  B Back");
     if (back)
         menu_pop();
 }
@@ -865,12 +893,10 @@ void ctl_frame(menu_page page, uint32_t pressed, uint32_t held, int back)
     switch (page)
     {
         case PAGE_CONTROLS:       page_controls(back); break;
-        case PAGE_PRESETS:        page_presets(back); break;
-        case PAGE_CONFIRM_PRESET: page_confirm_preset(back); break;
-        case PAGE_BUTTONS:        page_map(0, back); break;
-        case PAGE_MODLAYER:       page_map(1, back); break;
+        case PAGE_CONFIRM_MAPRESET: page_confirm_mapreset(back); break;
+        case PAGE_BUTTONS:        page_map(back); break;
         case PAGE_CAPTURE:        page_capture(); break;             /* B is a capturable control here */
-        case PAGE_TEST:           page_test(back); break;
+        case PAGE_TEST:           page_test(held); break;            /* ... and a button to test here: hold it to leave */
         case PAGE_HOTKEYS:        page_hotkeys(held, back); break;
         case PAGE_COMBO_CAPTURE:  page_combo_capture(held); break;
         case PAGE_COMBO_CONFIRM:  page_combo_confirm(pressed); break;
@@ -882,6 +908,7 @@ void ctl_frame(menu_page page, uint32_t pressed, uint32_t held, int back)
 void ctl_reset(void)
 {
     revert_pending();
+    l_test_hold = 0;
     set_msg("", 0);
 }
 
@@ -896,10 +923,12 @@ void ctl_menu_closing(void)
 
 void ctl_leave_page(menu_page p)
 {
-    if (p == PAGE_CONTROLS || p == PAGE_BUTTONS || p == PAGE_MODLAYER || p == PAGE_PRESETS)
+    if (p == PAGE_CONTROLS || p == PAGE_BUTTONS)
         remap_flush();
     if (p == PAGE_HOTKEYS)
         cfg_save();
     if (p == PAGE_CONTROLS || p == PAGE_HOTKEYS)
         set_msg("", 0);
+    if (p == PAGE_TEST)
+        l_test_hold = 0;
 }

@@ -32,10 +32,12 @@
 #define MAX_CMDS 512
 
 typedef struct {
-    enum { C_WAIT, C_MENU, C_SHOT, C_QUIT, C_KILL, C_STAT, C_PJSAVE, C_BUTTON, C_HOLD, C_CAP } kind;
+    enum { C_WAIT, C_MENU, C_SHOT, C_QUIT, C_KILL, C_STAT, C_PJSAVE, C_BUTTON, C_HOLD, C_CAP, C_PROBE } kind;
     int arg;
+    int shot_at;           /* C_HOLD: also take a screenshot on this tick of the hold (0 = none) */
     uint32_t mask;
     padsrc src;
+    n64_state probe;       /* C_PROBE */
 } cmd_t;
 
 static cmd_t l_cmds[MAX_CMDS];
@@ -44,6 +46,7 @@ static int   l_wait_left;
 static int   l_release_tick;
 static int   l_hold_left;
 static uint32_t l_hold_mask;
+static int   l_hold_age, l_hold_shot_at;
 static char  l_prefix[1024];
 static int   l_shot_n;
 
@@ -51,6 +54,7 @@ static void add(int kind, int arg, uint32_t mask)
 {
     if (l_ncmds < MAX_CMDS)
     {
+        memset(&l_cmds[l_ncmds], 0, sizeof(l_cmds[l_ncmds]));
         l_cmds[l_ncmds].kind = kind;
         l_cmds[l_ncmds].arg = arg;
         l_cmds[l_ncmds].mask = mask;
@@ -82,6 +86,29 @@ static void parse(const char *script)
             add(C_PJSAVE, atoi(tok + 7), 0);
         else if (strncmp(tok, "pjzip:", 6) == 0)
             add(C_PJSAVE, atoi(tok + 6), 1);
+        else if (strncmp(tok, "probe:", 6) == 0)
+        {
+            /* "probe:a+b+cup+shift+tilt+sx60+sy-80", "probe:off": what the Test controller page shows, whatever the pad does */
+            static const char *const names[N64_NBUTTONS] = { "a", "b", "z", "start", "l", "r", "dup", "ddown", "dleft", "dright",
+                                                             "cup", "cdown", "cleft", "cright" };
+            n64_state st;
+            char *copy2 = strdup(tok + 6), *t2, *sv2 = NULL;
+            memset(&st, 0, sizeof(st));
+            for (t2 = copy2 != NULL ? strtok_r(copy2, "+", &sv2) : NULL; t2 != NULL; t2 = strtok_r(NULL, "+", &sv2))
+            {
+                int k;
+                for (k = 0; k < N64_NBUTTONS; k++)
+                    if (strcmp(t2, names[k]) == 0)
+                        st.buttons |= 1u << k;
+                if (strcmp(t2, "shift") == 0) st.cshift = 1;
+                if (strcmp(t2, "tilt") == 0)  st.tilt = 1;
+                if (strncmp(t2, "sx", 2) == 0) st.sx = atoi(t2 + 2) * 32767 / 80;
+                if (strncmp(t2, "sy", 2) == 0) st.sy = atoi(t2 + 2) * 32767 / 80;
+            }
+            free(copy2);
+            add(C_PROBE, strcmp(tok + 6, "off") == 0 ? 0 : 1, 0);
+            l_cmds[l_ncmds - 1].probe = st;
+        }
         else if (strncmp(tok, "cap:", 4) == 0)
         {
             padsrc s;
@@ -99,16 +126,23 @@ static void parse(const char *script)
             const char *btns = tok;
             int hold = 0;
             uint32_t mask;
+            int shot_at = 0;
             if (strncmp(tok, "hold", 4) == 0 && strchr(tok, ':') != NULL)
             {
+                const char *at = strchr(tok, '@');
                 hold = atoi(tok + 4);
+                if (at != NULL && at < strchr(tok, ':'))
+                    shot_at = atoi(at + 1);
                 btns = strchr(tok, ':') + 1;
             }
             mask = pad_parse_combo(btns);
             found = mask != 0;
             (void) i;
             if (found)
+            {
                 add(hold > 0 ? C_HOLD : C_BUTTON, hold, mask);
+                l_cmds[l_ncmds - 1].shot_at = shot_at;
+            }
             else
                 DebugMessage(M64MSG_WARNING, "debug script: unknown token '%s'", tok);
         }
@@ -120,6 +154,7 @@ void dbg_configure(const char *script, const char *shot_prefix, int open_menu_af
 {
     l_ncmds = l_pos = l_wait_left = l_release_tick = l_hold_left = 0;
     l_hold_mask = 0;
+    l_hold_age = l_hold_shot_at = 0;
     l_shot_n = 0;
     l_prefix[0] = 0;
     if (shot_prefix != NULL)
@@ -145,6 +180,9 @@ void dbg_tick(dbg_tick_t *out)
     if (l_hold_left > 0)            /* a hold command in progress */
     {
         out->buttons = l_hold_mask;
+        l_hold_age++;
+        if (l_hold_shot_at > 0 && l_hold_age == l_hold_shot_at)
+            out->shot = 1;
         if (--l_hold_left == 0)
             l_release_tick = 1;
         return;
@@ -174,7 +212,11 @@ void dbg_tick(dbg_tick_t *out)
             case C_PJSAVE: out->pj_slot = c->arg; out->pj_zip = (int) c->mask; break;
             case C_CAP:    out->cap = 1; out->capsrc = c->src; break;
             case C_BUTTON: out->buttons = c->mask; l_release_tick = 1; break;
-            case C_HOLD:   out->buttons = c->mask; l_hold_mask = c->mask; l_hold_left = c->arg - 1; if (l_hold_left == 0) l_release_tick = 1; break;
+            case C_HOLD:   out->buttons = c->mask; l_hold_mask = c->mask; l_hold_left = c->arg - 1; l_hold_age = 1; l_hold_shot_at = c->shot_at;
+                           if (l_hold_shot_at == 1) out->shot = 1;
+                           if (l_hold_left == 0) l_release_tick = 1;
+                           break;
+            case C_PROBE:  out->probe_set = 1; out->probe_on = c->arg; out->probe = c->probe; break;
         }
     }
 }

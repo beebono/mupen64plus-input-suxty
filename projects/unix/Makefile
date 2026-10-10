@@ -134,11 +134,13 @@ SOURCE = \
 	$(SRCDIR)/pad.c \
 	$(SRCDIR)/padmap.c \
 	$(SRCDIR)/plugin_api.c \
+	$(SRCDIR)/quitarm.c \
 	$(SRCDIR)/remap.c \
 	$(SRCDIR)/session.c \
 	$(SRCDIR)/states.c \
 	$(SRCDIR)/toast.c \
 	$(SRCDIR)/ui.c \
+	$(SRCDIR)/uinav.c \
 	$(SRCDIR)/video.c
 
 OBJECTS := $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(filter %.c, $(SOURCE)))
@@ -152,7 +154,7 @@ targets:
 	@echo "mupen64plus-input-suxty makefile."
 	@echo "  Targets:"
 	@echo "    all            == Build the plugin, mupen64plus-input-suxty.so"
-	@echo "    check          == build and run the unit tests (N64 mapping model, config layers, foir interface, auto-save safety net, inotify watcher)"
+	@echo "    check          == build and run the unit tests (N64 mapping model, config layers and migration, foir interface, grid navigation, quit logic, auto-save safety net, inotify watcher)"
 	@echo "    clean          == remove object files and build products"
 	@echo "    rebuild        == clean and re-build all"
 	@echo "    install        == Install the plugin into PLUGINDIR"
@@ -174,7 +176,7 @@ all: $(TARGET)
 plugin: all
 
 clean:
-	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave fake_foir.so
+	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave test_uinav test_quitarm fake_foir.so
 
 rebuild: clean all
 
@@ -198,21 +200,30 @@ $(TARGET): $(OBJECTS)
 	$(Q_LD)$(CC) $(CFLAGS) $(PLUGIN_CFLAGS) $(PLUGIN_LDFLAGS) $^ $(LDLIBS) -o $@
 
 # unit tests (need only the SDL2 headers): the N64 mapping model (src/padmap.c), the config layers and the migration of
-# an old suxty.cfg (src/cfg.c), and foir discovery / option layering against a fake foir (src/foir_if.c)
-check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave
+# an old suxty.cfg (src/cfg.c, src/padmap.c), and foir discovery / option layering against a fake foir (src/foir_if.c)
+check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_quitarm
 	./test_padmap
 	./test_cfg
+	./test_uinav
+	./test_quitarm
 	./test_foir_if ./fake_foir.so
 	./test_autosave
 
 test_padmap: $(SRCDIR)/../tools/test_padmap.c $(SRCDIR)/padmap.c $(SRCDIR)/inifile.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm
 
-test_cfg: $(SRCDIR)/../tools/test_cfg.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/osal_files_unix.c
+test_cfg: $(SRCDIR)/../tools/test_cfg.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/padmap.c $(SRCDIR)/osal_files_unix.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm
 
-test_foir_if: $(SRCDIR)/../tools/test_foir_if.c $(SRCDIR)/foir_if.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/osal_files_unix.c
+test_foir_if: $(SRCDIR)/../tools/test_foir_if.c $(SRCDIR)/foir_if.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/padmap.c $(SRCDIR)/osal_files_unix.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm -ldl
+
+# the D-pad grid navigation (src/uinav.c) and the double-press quit logic (src/quitarm.c): pure functions
+test_uinav: $(SRCDIR)/../tools/test_uinav.c $(SRCDIR)/uinav.c
+	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
+
+test_quitarm: $(SRCDIR)/../tools/test_quitarm.c $(SRCDIR)/quitarm.c
+	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
 
 # the auto-save safety net and the inotify watcher (zlib is used by the test only, to write the files the plugin checks)
 test_autosave: $(SRCDIR)/../tools/test_autosave.c $(SRCDIR)/autosave.c $(SRCDIR)/filewatch.c

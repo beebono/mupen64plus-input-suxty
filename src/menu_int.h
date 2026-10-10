@@ -18,7 +18,7 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* Shared between menu.c (the page stack) and menu_ctl.c (the controller and hotkey pages). */
+/* Shared between menu.c (the page stack) and menu_ctl.c / menu_av.c (the controller, hotkey and FOIR pages). */
 
 #ifndef MENU_INT_H
 #define MENU_INT_H
@@ -34,36 +34,37 @@ typedef enum {
     PAGE_SETTINGS,
     PAGE_CONFIRM_RESET,
     PAGE_CONFIRM_QUIT,
+    PAGE_CONFIRM_PROFILE_RESET,
     PAGE_CONTROLS,           /* menu_ctl.c from here on */
-    PAGE_PRESETS,
-    PAGE_CONFIRM_PRESET,
+    PAGE_CONFIRM_MAPRESET,
     PAGE_BUTTONS,
-    PAGE_MODLAYER,
     PAGE_CAPTURE,
     PAGE_TEST,
     PAGE_HOTKEYS,
     PAGE_COMBO_CAPTURE,
     PAGE_COMBO_CONFIRM,
     PAGE_CONFIRM_CTL_RESET,
-    PAGE_VIDEO,              /* menu_av.c from here on: foir's options, the volume and the game profile */
-    PAGE_AUDIO,
-    PAGE_PROFILE,
-    PAGE_CONFIRM_PROFILE_RESET
+    PAGE_FOIR,               /* menu_av.c from here on: foir's options */
+    PAGE_CONFIRM_FOIR_DEFAULT
 } menu_page;
 
-/* "Controls" or "Controls - this game": the edit scope (g_cfg.scope) is part of every settings page's title */
+/* "Controls" or "Controls (game)": the edit scope (g_cfg.scope) is part of every settings page's title */
 const char *menu_scoped_title(char *buf, size_t size, const char *base);
 /* the marker a settings row gets: 1 = this game has its own value (and you are editing the game), 2 = this game has
  * its own value but you are looking at the global one, 0 = none */
 int         menu_mark_kind(int overridden);
+/* the status line of a settings page when nothing else is to be said: explains the marker of the focused row once, else
+ * says where changes go */
+const char *menu_scope_status(void);
+/* A confirm dialog's two buttons, "No" and "Yes", side by side.  Returns 1 on Yes; No pops the page (B does too, the caller). */
+int         menu_yes_no(void);
 
 void      menu_push(menu_page p);
 void      menu_pop(void);
 
 /* menu_av.c */
 int  av_owns_page(menu_page p);
-int  av_video_available(void);        /* foir is the video plugin: the Video page exists */
-int  av_audio_available(void);        /* the core can report the volume: the Audio page exists */
+int  av_foir_available(void);         /* foir is the video plugin: the FOIR Options page exists */
 void av_frame(menu_page p, int back);
 void av_reset(void);                  /* the menu was (re)opened */
 void av_leave_page(menu_page p);      /* page `p` was just left */

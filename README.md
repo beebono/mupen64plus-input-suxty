@@ -13,9 +13,9 @@ with no keyboard, mouse or config file to edit.
 ## What it does
 
 - **Input.** suxty reads the pad through SDL and answers the core's `GetKeys()` itself, through a remappable N64 mapping
-  (per pad model, per game; presets, a modifier layer, deadzone / range). Hotkeys and the menu combo are hidden from the game.
-- **In-game menu** (Select + Start by default, over a dimmed last frame, pad only): Resume, Save States, Reset (soft / hard),
-  Controls, Video (only with foir), Audio (volume), Settings, Quit.
+  (per pad model, per game; a D-pad / stick swap, a C-Face shift and a Soft Tilt hold button, deadzone / range). Hotkeys and the menu combo are hidden from the game.
+- **In-game menu** (Select + Start by default, over a dimmed last frame, pad only): a grid with Save / Load for the chosen slot, Resume, Reset (soft / hard),
+  Settings (Controls, FOIR Options with foir, Hotkeys, Volume, options, Apply to, Save Game Profile) and Quit.
 - **Hotkeys** (hold Select): R quick-save, L quick-load, Right / Left next / previous slot, Y fast-forward, B (hold) quit.
 - **Per-game settings** in `<configdir>/suxty/games/<rom-md5>.cfg`, with an "Apply to: All games / This game" switch.
 
@@ -63,11 +63,25 @@ directory too.
 | Input | Action |
 |---|---|
 | **Select + Start** *(configurable)* | Open or close the menu |
-| D-pad / left stick | Move focus; Left/Right scrolls the save-slot carousel, changes sliders and choices |
-| **A** | Confirm (on a mapping row: start the capture prompt) |
-| **B** | Back / close |
+| D-pad / left stick | Move focus (in the main menu's grid Left/Right also move between the two columns); Left/Right changes sliders, choices and the slot of "In Slot", and moves along the Save States carousel when it has the focus |
+| **A** | Confirm (on a mapping row: start the capture prompt; on "In Slot": open Save States) |
+| **B** | Back / close (on Test controller it is a button to test: hold it 3 s to leave) |
 | **X** | On a mapping or hotkey row: clear it. In *This game* scope, on a row with a green bar: reset it to the global value |
 | L / R | Scroll the save-slot carousel |
+
+The main menu is a grid (the window title is the game's name):
+
+```
+ Save    | Load           Save and Load act on the slot in "In Slot"; Save asks before overwriting a filled slot
+ In Slot 3  (Left/Right: slot, A: the Save States page)
+ Resume  | Reset          Reset (soft / hard) and Quit always ask first
+ Settings| Quit
+```
+
+**Settings** lists: Controls, FOIR Options (only with foir), Hotkeys, Volume (hidden if the core cannot report it), Auto-Save, Confirm Quit, Fast-Forward, FF Speed, Dim,
+Notices, Apply to (All games / This game: where the Controls, FOIR Options and Settings pages save) and Save Game Profile (writes the settings in force as this game's own and
+shows a notice; a Reset Game Profile row appears once the game has any). Text is drawn in two bitmap faces (8x16 for items, a crisp 12x24 for the hints and status lines),
+panels come in four standard widths, and a list that does not fit scrolls with a slim scroll bar at its right edge.
 
 **Select + Start always opens the menu**, even if you set a different menu combo (the *recovery combo*). Hotkeys are combos built on the
 **hotkey button** (default Select, written `hotkey`); while it is held the game sees a neutral controller:
@@ -78,13 +92,13 @@ directory too.
 | Hotkey + L | quick-load the current slot |
 | Hotkey + Right / Left | next / previous slot (the toast shows its last-saved time) |
 | Hotkey + Y | fast-forward (hold, or toggle with `fast_forward_mode = toggle`); a badge shows the speed |
-| Hotkey + B (hold 1 s) | quit (saves the auto slot first when that is on) |
+| Hotkey + B | quit (saves the auto slot first when that is on); with *Confirm Quit* (default) press it twice within 2 s, a notice follows the first press |
 
 ### Save and load (fire and forget)
 
 suxty sends the core's command and does not track it.
 
-- **Save** (menu: asks before overwriting; hotkey: at once): `M64CMD_STATE_SAVE` for the slot, the menu closes, toast "Saving slot N...".
+- **Save** (menu: Save acts on the slot of "In Slot" and asks before overwriting a filled one; hotkey: at once): `M64CMD_STATE_SAVE` for the slot, the menu closes, toast "Saving slot N...".
   Just before the command suxty puts an **inotify** watch on the state directory (`IN_CLOSE_WRITE | IN_MOVED_TO`, for that file name) and
   polls it once per frame (no thread). The core's worker closes the file when it is done, and that event turns the toast into **"Saved"**; if it has not
   come within 5 s the toast becomes **"Save not written"** (a file that ends up empty counts as not written, too). The events come from the VFS, so this
@@ -93,10 +107,10 @@ suxty sends the core's command and does not track it.
   directory is not writable or the disk is nearly full.
 - **Load**: `M64CMD_STATE_LOAD`, the menu closes, the core does the rest. The carousel shows each slot's number and the file's time ("Empty"
   if none; no thumbnails). A slot that exists only as a **Project64 state** (`<ROM header name>.pjN[.zip]`) is shown tagged "PJ64" and loaded by path;
-  saving writes the Mupen64Plus `.stN` and leaves the `.pj` file alone. The **Auto** card is for information: its Load is greyed ("Load (by launcher)":
-  the launcher loads it with `--savestate`, see below) and Delete works on it (and removes its backups).
-- **Reset**: soft (`M64CMD_RESET 0`, like the console's reset button) or hard (`1`, power cycle). **Quit**: `M64CMD_STOP`.
-- **Auto-save on quit is opt-in** (`[states] autosave_on_quit = false` by default; Settings: "Auto-save on quit"). When on, Quit first saves the
+  saving writes the Mupen64Plus `.stN` and leaves the `.pj` file alone. The **Auto** card is for information: its Load is greyed (the launcher loads it with `--savestate`, see below) and Delete works on it (and removes its backups).
+  The Save States page is a carousel (Left/Right or L/R) over one row of Save / Load / Delete; a Project64 slot says "PJ64" in the dialogs.
+- **Reset** (No / Yes = soft, and a full-width "Hard (Power Cycle)"): soft is `M64CMD_RESET 0`, like the console's reset button; hard is `1`. **Quit** (No / Yes, "(Auto-Save Enabled)" when that is on): `M64CMD_STOP`.
+- **Auto-save on quit is opt-in** (`[states] autosave_on_quit = false` by default; Settings: "Auto-Save"). When on, Quit first saves the
   separate auto slot file `<state name>.auto.st` (never a numbered slot: spruce's `M64P_AUTOLOAD` loads slot 0), waits for the inotify event
   (the file closed by the core), then stops. If it could not be written the game keeps running (toast "Save not written"; Quit again to retry).
   suxty does not load it: resume with the front-end (`--savestate`, above).
@@ -121,25 +135,25 @@ previous auto-save. So:
    (read from `/proc/self/cmdline`), the log mentions it, but nothing depends on it.
 4. Only this game's files (`<name>.auto.st` and `<name>.auto.st.prev*`) are ever touched. **Delete** on the Auto card removes the auto-save and all its backups.
 
-### Video page (foir only)
+### FOIR Options (foir only)
 
-Shown only when **mupen64plus-rdp-foir** is the video plugin. suxty finds it through a one-way interface that foir exports
+Settings > **FOIR Options** is shown only when **mupen64plus-rdp-foir** is the video plugin. suxty finds it through a one-way interface that foir exports
 (`FoirSuxtyGetInterface`, see foir's README, "suxty interface"): the options come from foir's own table (label, kind, value, and whether a change applies
 at once), so the page follows foir's versions. With any other video plugin the page is simply not there.
 
 - **Applies at once:** Widescreen, Smoothing (bilinear filter), Interlace hack, Frame skip.
-- **Applies at the next launch** (listed under a heading): VSync, Worker threads, NEON kernels, Specialised kernels, Fast combiner, Relaxed precision.
+- **Applies at the next launch** (listed under a "v Applies at the next launch v" heading): VSync, Worker threads, NEON kernels, Specialised kernels, Fast combiner, Relaxed precision.
 - Where a change is stored follows "Apply to": *All games* writes `[foir]` in `suxty.cfg`, *This game* writes `[foir]` in the game's file (keys are the
   `[Video-Foir]` names: `Widescreen = true`, `FrameSkip = Auto`, `Threads = None`). **`mupen64plus.cfg` is never touched** (the front-end saves it).
   At game start, before foir opens the ROM, suxty hands every stored value to foir, so the next-launch options are applied then too.
-- **Save as foir default** writes the values shown into `[Video-Foir]` of `mupen64plus.cfg` (through foir), the only way suxty ever writes that file; foir then uses
+- **Save as foir default** (asks Yes / No first, since it writes your global `mupen64plus.cfg`) writes the values shown into `[Video-Foir]` (through foir), the only way suxty ever writes that file; foir then uses
   them without suxty too.
 - foir found? One scan of the loaded objects (`dl_iterate_phdr` + `dlopen(RTLD_NOLOAD)`) at game start and again when the menu opens; no polling.
 
-### Audio page
+### Volume
 
-One row, **Volume** (0-100, `M64CORE_AUDIO_VOLUME`), applied at once and stored per scope (`[audio] volume`); X goes back to the audio plugin's own default.
-The page is hidden if the core / audio plugin cannot report a volume.
+Settings > **Volume** (0-100, `M64CORE_AUDIO_VOLUME`) is applied at once and stored per scope (`[audio] volume`); X goes back to the audio plugin's own default.
+The row is hidden if the core / audio plugin cannot report a volume.
 
 ### Controls (controller remap)
 
@@ -147,22 +161,28 @@ Pause menu > **Controls**. Everything applies at once and is saved.
 
 - **Player / Controller.** Choose the player (1-4) and which pad drives it: *Auto* (pads in connection order; keyboards and other devices that merely show up as joysticks are skipped), *None*,
   or a pad by name. A pad that is plugged in for a player that had none when the game started is used from the next launch (the core is told which players exist once).
-- **Buttons.** All 14 N64 buttons and the four directions of the analog stick, each with one physical source: a button, one direction of a hat, or one half of an axis. **A** on a row
-  opens the **capture prompt** (press the control; 6 s without input cancels); **X** clears the row.
-- **Presets** (asks first, keeps your deadzone and range): *Default*, *Right stick = C*, *Face buttons = C* (with a modifier), *D-pad = stick*, *Sticks swapped*.
-- **Modifier layer**: pick a modifier button, then map any N64 input while it is held; the normal inputs that use the same physical controls are silenced meanwhile.
-- **Stick deadzone / range** in percent of each half axis (default 12 % and 100 %); **Test controller** shows what the game would get.
+- **Buttons.** All 14 N64 buttons and the four directions of the analog stick, each with one physical source: a button, one direction of a hat, or one half
+  of an axis, named generically (South / East / West / North, DPad Up ..., L1 / R1 / L2 / R2, Start / Select, L-Stick Left ...; "Btn 12" for an unmapped extra). **A** on a row
+  opens the **capture prompt** (press the control; 5 s without input cancels); **X** clears the row. Two more rows are hold buttons:
+  **C-Face shift** (while held, the face buttons act as C-Down / C-Right / C-Left / C-Up and do nothing else) and **Soft Tilt** (while held, the stick output, after deadzone / range and
+  including a D-pad that drives the stick, is scaled by `[input] soft_tilt_scale`, default 0.5). A control moves when it is captured for another row.
+- **D-pad acts as: D-pad / Stick.** A software swap of the four stick channels with the four D-pad channels in the mapping, per pad model (and per game). The Buttons page always shows
+  what the game gets, so with the swap on the "DPad Up" row lists what the stick has. A pad without a stick starts with its D-pad as the stick.
+- **Reset to default mapping** (asks first; keeps deadzone and range): left stick = stick, D-pad = D-pad, right stick = C; a pad with one stick gets a C-Face shift button (a spare trigger or stick click), one with none has its D-pad as the stick.
+- **Stick deadzone / range** in percent of each half axis (default 12 % and 100 %); **Test controller** shows what the game would get (BTN / D-pad / C in one row, then the stick); hold B for 3 s to leave it.
 - The mapping belongs to the **pad model** (its SDL name), so it follows the pad when players are swapped.
 
-Settings > **Hotkeys** assigns the hotkey button, the menu combo, quick-save / -load, slots, fast-forward and quit (**A** starts a capture: hold the buttons together, let go; **X** clears).
+Settings > **Hotkeys** assigns the hotkey button, the menu combo, quick-save / -load, slots, fast-forward and quit (**A** starts a capture, 7 s idle cancels: hold the buttons together, let go; **X** clears; **Reset All**).
 Lock-out protection: Select + Start (`recovery_combo`) always opens the menu; a new menu combo or hotkey button must be proven by using it within 10 s or the old one comes back; overlapping combos
-are refused. Settings also has the menu look (dim, hints, notices), Swap A/B, auto-save, fast-forward mode / speed and quit-hold time.
+are refused. Settings also has the menu look (Dim, Notices), Auto-Save, Confirm Quit, Fast-Forward mode and FF Speed. Hints are always on. `swap_ab` (the marked A button confirms in the
+menu, for launchers such as spruce) is a file-only option under `[input]`.
 
 ### Per-game settings
 
 Every setting has a *global* value (`suxty.cfg`) and may have a *game* value in `<configdir>/suxty/games/<rom-md5>.cfg` (the ROM's MD5, so a `.z64`, `.v64` and `.n64` dump share a file). The game wins;
-"Reset to global" (X on a green row, or *Settings > Game profile > Reset all to global*) deletes the entry. What can be per game: hotkeys and fast-forward settings, auto-save, controller choice and
-mappings, the volume, and foir's options. The menu's look, Swap A/B, nav deadzone and the recovery combo are global only. The core's and the other plugins' options are not suxty's business: use your config / front-end.
+"Reset to global" (X on a green row, or *Settings > Reset Game Profile*) deletes the entry. **Save Game Profile** (Settings) copies every per-game-capable setting in force (auto-save, Confirm Quit,
+hotkey combos, fast-forward, Soft Tilt, volume, controller choice and mappings, foir's options; not the hotkey button and the menu combo) into the game's file. In the lists a green bar marks a row the game has its own value for
+(in *This game* scope), an olive bar one it has while you look at the global value; the status line says which when the row has the focus. What can be per game: those settings. The menu's look, Swap A/B, nav deadzone and the recovery combo are global only. The core's and the other plugins' options are not suxty's business: use your config / front-end.
 
 ## Configuration
 
@@ -175,16 +195,16 @@ suxty/
 
 ```ini
 [general]
-version = 2
+version = 3
 [menu]
 menu_combo = select+start        # buttons joined with '+'; the word "hotkey" stands for hotkey_button
 dim_percent = 65
-show_hints = true
 show_toasts = true
 toast_ms = 1800
 recovery_combo = select+start    # ALWAYS opens the menu too ("none" disables, at your own risk)
 [input]
-swap_ab = false
+swap_ab = false                  # hidden (file only): swap confirm / back in the menu; a launcher sets it where the marked A button should confirm
+soft_tilt_scale = 0.5            # stick strength while the Soft Tilt button is held (0.0-1.0); no menu row
 nav_deadzone = 50
 block_game_input = true          # hide hotkey/menu buttons from the game (recommended)
 [hotkeys]
@@ -197,7 +217,7 @@ fast_forward = hotkey+y
 quit = hotkey+b
 fast_forward_mode = hold         # or toggle
 fast_forward_speed = 300         # percent (50-1000), 0 = unlimited
-quit_hold_ms = 1000
+confirm_quit = true              # the quit combo must be pressed twice within 2 s (a notice after the first)
 [states]
 autosave_on_quit = false         # opt-in: Quit saves <state name>.auto.st first
 [audio]
@@ -208,11 +228,18 @@ FrameSkip = Auto
 [players]                        # which pad drives which N64 player: auto | none | <pad name>
 p1 = auto
 [pad:retrogame_joypad]           # the mapping of one pad model (written by Controls in the menu)
-preset = default
 deadzone = 12
-modifier = button:7              # none | button:N | hat:N:up|down|left|right | axis:N+|-
-a = button:0                     # one key per N64 input: a b z start l r dpad_* c_* stick_*; mod_<key> while the modifier is held
+dpad_swap = false                # true: the D-pad channels and the stick channels are exchanged ("D-pad acts as: Stick" on a pad whose D-pad is on the D-pad rows)
+cface = button:7                 # the C-Face shift hold button: none | button:N | hat:N:up|down|left|right | axis:N+|-
+cface_c_up = button:3            # ... while it is held these controls act as C-Up / -Down / -Left / -Right (the face buttons)
+softtilt = none                  # the Soft Tilt hold button
+a = button:0                     # one key per N64 input: a b z start l r dpad_* c_* stick_*
 ```
+
+**Upgrading.** Version 3 (the menu refinement pass) migrates old files when they load, in `suxty.cfg` and in the game files alike, and writes them back clean:
+`[hotkeys] quit_hold_ms` becomes `confirm_quit` (0 = *Instant* = false, any other time = true; an explicit `confirm_quit` wins) and is removed; `[menu] show_hints` is removed (hints are always on);
+in the `[pad:...]` sections a `modifier` whose layer mapped the C buttons (`mod_c_*`, the old "Face buttons = C") becomes `cface` / `cface_c_*` (the C-Face shift), any other modifier layer (`modifier`, the rest of `mod_*`)
+is dropped, and the `preset` name is dropped. `swap_ab` keeps working as a file-only key. Unknown keys are kept.
 
 **Upgrading from the front-end build.** Old files load without error: the keys and sections that no longer mean anything (`[input] remap_input`, `[plugins]`, `[cfg:...]`, `[UI-Suxty]`)
 are dropped on load, unknown keys are kept, and `autosave_on_quit` goes back to its new default (off), because it now means something different.
@@ -232,7 +259,7 @@ Environment variables, read once when the game starts:
 
 Tokens run one per tick (a presented game frame, or a menu frame while the menu is open): `waitN`, `menu`, `shot`, `quit` (like the menu's Quit), `kill`, `stat`, the buttons
 `up down left right a b x y l r start select`, combos (`select+r`), `holdN:select+y`, `cap:button:3` / `cap:hat:0:up` / `cap:axis:2+` (answer the remap capture prompt), `pjsave:N` / `pjzip:N`
-(write a Project64 state with the core). Example (x86, headless, stock ui-console):
+(write a Project64 state with the core), `holdN@K:b` (a hold that also takes a shot on tick K), `probe:a+b+cup+shift+tilt+sx60+sy-80` / `probe:off` (what the Test controller page shows, for layout checks). Example (x86, headless, stock ui-console):
 
 ```sh
 SDL_VIDEODRIVER=offscreen SDL_AUDIODRIVER=dummy SUXTY_DEBUG_SHOT_PREFIX=/tmp/shot \
@@ -251,9 +278,9 @@ mupen64plus --configdir /tmp/cfg --gfx mupen64plus-rdp-foir.so --input ./mupen64
   Toasts and the fast-forward badge are drawn over the finished frame from the overlay context just before the swap.
 - **Input.** `GetKeys()` runs on the same thread: `SDL_JoystickUpdate`, then the hotkey filter (`src/inputfilter.c`: the hotkey button, or the open menu, make the pad neutral for the game, and a button pressed
   in that time stays hidden until released, so not even one frame leaks), then the N64 mapping (`src/padmap.c`, `src/remap.c`). No SDL function is intercepted.
-- **Video page.** `src/foir_if.c`: discovery, option layering, and the page's logic; `src/menu_av.c`: the pages. `src/foir_suxty.h` is a copy of foir's header (ABI version 1; another ABI counts as "no foir").
+- **FOIR Options page.** `src/foir_if.c`: discovery, option layering, and the page's logic; `src/menu_av.c`: the FOIR Options pages. `src/foir_suxty.h` is a copy of foir's header (ABI version 1; another ABI counts as "no foir").
 - **Saves.** `src/states.c`: slot file names; `src/filewatch.c`: the inotify watch (with a stat fallback); `src/autosave.c`: auto-save validation, backups and the start check; `src/session.c`: ties them to the core commands.
-- **Widgets** (`src/ui.c`, `src/gl.c`): a small own-drawn immediate-mode set with D-pad focus navigation, SDL2 and GLES only, scaling from 320x240 to 1280x720 and beyond.
+- **Widgets** (`src/ui.c`, `src/gl.c`, `src/uinav.c`): a small own-drawn immediate-mode set with grid-aware D-pad focus navigation (`uinav.c` is a pure function with its own test), SDL2 and GLES only, scaling from 320x240 to 1280x720 and beyond; the 12x24 hint face and the arrow glyphs come from `tools/gen_font.py`.
 - The shared object exports only the plugin API (`-fvisibility=hidden`, `-Bsymbolic`, `--exclude-libs,ALL`), so it can neither interpose nor be interposed.
 
 ## Building
@@ -261,7 +288,7 @@ mupen64plus --configdir /tmp/cfg --gfx mupen64plus-rdp-foir.so --input ./mupen64
 ```sh
 cd projects/unix
 make all                 # -> mupen64plus-input-suxty.so (needs SDL2 headers and the Mupen64Plus core API headers, ../../../mupen64plus-core/src/api is found automatically)
-make check               # unit tests (ASan/UBSan): the N64 mapping model, the config layers and the old-config migration, foir discovery and option layering against a fake foir,
+make check               # unit tests (ASan/UBSan): the N64 mapping model (D-pad swap, C-Face shift, Soft Tilt), the config layers and the old-config migration, the menu grid navigation, the double-press quit logic, foir discovery and option layering against a fake foir,
                          # the auto-save validation / backup rotation / start check and the inotify watcher (needs zlib headers, for the test only)
 make install PREFIX=...  # to $(PREFIX)/lib/mupen64plus (or PLUGINDIR=)
 ```
@@ -280,8 +307,8 @@ The only library dependency is SDL2; GL / GLES entry points are resolved at run 
   (the menu still opens and draws).
 - **Saves:** the core leaves its state-file lock held if writing fails, which would hang the next load; suxty refuses to start a save when the state directory is not writable or has less than 24 MB free, but cannot cover a card that fails mid-write.
   A save that the core never starts (for instance a directory at the slot's path) is reported as "Save not written" after 5 s. The auto-save backup is judged at the next game start (see *Auto-save safety net*), not by the launcher's load.
-- A video plugin other than foir gets no Video page, and the core's / other plugins' options are not editable here.
-- Per-game mappings are overridden per pad model as a whole; there is no per-key marker. Each N64 input has one source per layer; there is no octagonal gate or sensitivity curve.
+- A video plugin other than foir gets no FOIR Options page, and the core's / other plugins' options are not editable here.
+- Per-game mappings are overridden per pad model as a whole; there is no per-key marker. Each N64 input has one source; there is no octagonal gate or sensitivity curve.
 - Fast-forward with audio: the core's speed factor changes audio speed, `fast_forward_speed = 0` (limiter off) can make `audio-sdl` skip.
 
 ## History

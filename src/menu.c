@@ -21,16 +21,19 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include <SDL.h>
 
+#include "audio.h"
 #include "cfg.h"
+#include "foir_if.h"
 #include "menu.h"
 #include "menu_int.h"
 #include "pad.h"
-#include "audio.h"
 #include "remap.h"
 #include "states.h"
+#include "toast.h"
 #include "ui.h"
 
 #define MAX_DEPTH 10
@@ -41,13 +44,19 @@ static int       l_depth;
 static char      l_game[32];
 static int       l_quit_saves;
 
-/* save-state carousel */
+/* the slot the Save / Load / In Slot controls act on, and the cards of the Save States carousel */
 static int        l_sel;                       /* 0-9 numbered slots, 10 = auto */
 static int        l_action_slot;
 static ui_card    l_cards[STATES_NUM_ENTRIES];
 static state_info l_info[STATES_NUM_ENTRIES];
-static char       l_msg[64];
+static char       l_msg[64];                   /* the main page's and the Save States page's message line */
 static int        l_msg_kind;
+static int        l_msg_focus;                 /* the focus it was set at: it goes when the focus moves */
+static char       l_set_msg[96];               /* the Settings page's status line */
+static int        l_set_msg_kind;
+static int        l_set_msg_focus;
+
+#define MAIN_FOCUS_RESUME 3                    /* the main page opens on Resume */
 
 void menu_set_game_name(const char *name)
 {
@@ -96,6 +105,26 @@ static void set_msg(const char *msg, int kind)
 {
     snprintf(l_msg, sizeof(l_msg), "%s", msg ? msg : "");
     l_msg_kind = kind;
+    l_msg_focus = ui_focus_get();
+}
+
+static void set_settings_msg(const char *msg, int kind)
+{
+    snprintf(l_set_msg, sizeof(l_set_msg), "%s", msg ? msg : "");
+    l_set_msg_kind = kind;
+    l_set_msg_focus = ui_focus_get();
+}
+
+/* A confirm dialog's "No" and "Yes", side by side: Yes returns 1, No goes back. */
+int menu_yes_no(void)
+{
+    int no, yes;
+    ui_row_begin(2);
+    no = ui_button("No");
+    yes = ui_button("Yes");
+    if (no)
+        pop();
+    return yes;
 }
 
 static void refresh_cards(void)
@@ -131,55 +160,134 @@ void menu_open(int current_slot)
     av_reset();
     l_sel = current_slot >= 0 && current_slot < STATES_NUM_SLOTS ? current_slot : 0;
     set_msg("", 0);
+    set_settings_msg("", 0);
+    refresh_cards();
     push(PAGE_MAIN);
-    ui_set_hints_visible(g_cfg.show_hints);
+    ui_focus_set(MAIN_FOCUS_RESUME);
+}
+
+/* ---- the scope: titles, markers, what the status line says ----------------------------------------- */
+
+const char *menu_scoped_title(char *buf, size_t size, const char *base)
+{
+    snprintf(buf, size, "%s%s", base, g_cfg.scope == CFG_SCOPE_GAME ? " (game)" : "");
+    return buf;
+}
+
+int menu_mark_kind(int overridden)
+{
+    return overridden ? (g_cfg.scope == CFG_SCOPE_GAME ? 1 : 2) : 0;
+}
+
+/* the one place the markers are explained: when a marked row has the focus */
+const char *menu_scope_status(void)
+{
+    switch (ui_focus_mark())
+    {
+        case 1:  return "Green bar: saved for this game";
+        case 2:  return "Olive bar: this game has its own";
+        default: return g_cfg.scope == CFG_SCOPE_GAME ? "Saved for this game only" : "Saved for all games";
+    }
+}
+
+/* ---- main ---------------------------------------------------------------------------------------------- */
+
+/* "Empty", or "10-09 18:42" (the year is in the carousel) */
+static void slot_info(int slot, char *out, size_t size)
+{
+    const ui_card *c = &l_cards[slot];
+    if (c->empty)
+        snprintf(out, size, "Empty");
+    else
+        snprintf(out, size, "%.10s %.5s", strlen(c->l1) == 10 ? c->l1 + 5 : c->l1, c->l2);
 }
 
 static menu_result page_main(void)
 {
     menu_result r = MENU_NONE;
-    static const char *const scopes[2] = { "All games", "This game" };
-    int sc = g_cfg.scope == CFG_SCOPE_GAME;
+    int is_auto = (l_sel == STATES_AUTO_SLOT), exists = l_info[l_sel].exists;
+    int act, dir = 0;
+    char label[24], info[24];
 
-    ui_panel_begin_scroll("Paused", 10, 0);
-    ui_label(l_game[0] ? l_game : " ");
-    if (ui_button("Resume"))      r = MENU_RESUME;
-    if (ui_button("Save States")) { refresh_cards(); set_msg("", 0); push(PAGE_STATES); }
-    if (ui_button("Reset"))       push(PAGE_CONFIRM_RESET);
-    if (ui_button("Controls"))    push(PAGE_CONTROLS);
-    if (av_video_available() && ui_button("Video"))   push(PAGE_VIDEO);      /* foir only */
-    if (av_audio_available() && ui_button("Audio"))   push(PAGE_AUDIO);
-    if (ui_button("Settings"))    push(PAGE_SETTINGS);
-    /* where the changes made in the Controls / Video / Audio / Settings pages are saved */
-    if (ui_choice("Apply to", &sc, scopes, cfg_game_available() ? 2 : 1))
-        cfg_set_scope(sc ? CFG_SCOPE_GAME : CFG_SCOPE_GLOBAL);
-    if (ui_button("Quit"))        push(PAGE_CONFIRM_QUIT);
-    ui_panel_end("A Select   B Resume");
+    if (l_msg[0] && ui_focus_get() != l_msg_focus)
+        set_msg("", 0);
+    ui_panel_begin_ex(l_game[0] ? l_game : "Menu", 8, UI_W_WIDE);
+    ui_grid(2);
+    ui_row_begin(2);
+    act = ui_button_dis("Save", is_auto);
+    if (act < 0)
+        set_msg("The auto slot is written by Quit", 0);
+    else if (act > 0)
+    {
+        l_action_slot = l_sel;
+        if (exists)
+            push(PAGE_CONFIRM_OVERWRITE);
+        else
+            r = MENU_SAVE_STATE;
+    }
+    act = ui_button_dis("Load", is_auto || !exists);
+    if (act < 0)
+        set_msg(is_auto ? "The launcher loads the auto-save" : "Nothing saved here yet", 0);
+    else if (act > 0)
+    {
+        l_action_slot = l_sel;
+        r = MENU_LOAD_STATE;
+    }
+    if (is_auto)
+        snprintf(label, sizeof(label), "In Slot Auto");
+    else
+        snprintf(label, sizeof(label), "In Slot %d", l_sel);
+    slot_info(l_sel, info, sizeof(info));
+    if (ui_stepper(label, info, &dir))
+    {
+        set_msg("", 0);
+        push(PAGE_STATES);
+        ui_focus_set(1);                            /* the carousel is the first row: start on Save */
+    }
+    else if (dir != 0)
+    {
+        l_sel = (l_sel + dir + STATES_NUM_ENTRIES) % STATES_NUM_ENTRIES;
+        set_msg("", 0);
+    }
+    ui_row_begin(2);
+    if (ui_button("Resume"))   r = MENU_RESUME;
+    if (ui_button("Reset"))    push(PAGE_CONFIRM_RESET);
+    ui_row_begin(2);
+    if (ui_button("Settings")) push(PAGE_SETTINGS);
+    if (ui_button("Quit"))     push(PAGE_CONFIRM_QUIT);
+    ui_panel_end_k(l_msg[0] ? l_msg : "A Select   B Resume", l_msg_kind);
     return r;
 }
+
+/* ---- Save States ------------------------------------------------------------------------------------------ */
 
 static menu_result page_states(uint32_t pressed)
 {
     menu_result r = MENU_NONE;
-    int act;
-    int is_auto = (l_sel == STATES_AUTO_SLOT);
-    int exists = l_info[l_sel].exists;
-    int dir = ((pressed & (PADBIT(PAD_RIGHT) | PADBIT(PAD_R))) ? 1 : 0) - ((pressed & (PADBIT(PAD_LEFT) | PADBIT(PAD_L))) ? 1 : 0);
+    int act, cdir;
+    int is_auto, exists;
+    int dir = ((pressed & PADBIT(PAD_R)) ? 1 : 0) - ((pressed & PADBIT(PAD_L)) ? 1 : 0);
 
     if (dir != 0)
     {
         l_sel = (l_sel + dir + STATES_NUM_ENTRIES) % STATES_NUM_ENTRIES;
-        is_auto = (l_sel == STATES_AUTO_SLOT);
-        exists = l_info[l_sel].exists;
         set_msg("", 0);
     }
-
-    ui_panel_begin_ex("Save States", 13, 90);
-    ui_carousel(l_cards, STATES_NUM_ENTRIES, l_sel);
+    ui_panel_begin_ex("Save States", 9, UI_W_FULL);
+    ui_grid(3);
+    cdir = ui_carousel(l_cards, STATES_NUM_ENTRIES, l_sel);
+    if (cdir != 0)
+    {
+        l_sel = (l_sel + cdir + STATES_NUM_ENTRIES) % STATES_NUM_ENTRIES;
+        set_msg("", 0);
+    }
+    is_auto = (l_sel == STATES_AUTO_SLOT);
+    exists = l_info[l_sel].exists;
     ui_status(l_msg, l_msg_kind);
-    act = ui_button_dis(is_auto ? "Save (auto slot)" : "Save", is_auto);
+    ui_row_begin(3);
+    act = ui_button_dis("Save", is_auto);
     if (act < 0)
-        set_msg("The auto slot is written by Quit (Settings: Auto-save)", 0);
+        set_msg("The auto slot is written by Quit", 0);
     else if (act > 0)
     {
         l_action_slot = l_sel;
@@ -189,7 +297,7 @@ static menu_result page_states(uint32_t pressed)
             r = MENU_SAVE_STATE;
     }
     /* the auto-save is loaded by the launcher at the next start (--savestate), not by the menu */
-    act = ui_button_dis(is_auto ? "Load (by launcher)" : "Load", is_auto || !exists);
+    act = ui_button_dis("Load", is_auto || !exists);
     if (act < 0)
         set_msg(is_auto ? "The auto-save is loaded by your launcher" : "Nothing saved here yet", 0);
     else if (act > 0)
@@ -202,9 +310,11 @@ static menu_result page_states(uint32_t pressed)
         set_msg("Nothing saved here yet", 0);
     else if (act > 0)
         push(PAGE_CONFIRM_DELETE);
-    ui_panel_end("Left/Right Slot   A Select   B Back");
+    ui_panel_end("L/R Slot   A Select   B Back");
     return r;
 }
+
+/* ---- Settings ---------------------------------------------------------------------------------------------- */
 
 /* options for the "choose one" rows: a value table plus how to show it */
 typedef struct {
@@ -216,9 +326,6 @@ typedef struct {
 static const char *const l_ff_speed_names[] = { "150%", "200%", "300%", "400%", "500%", "Unlimited" };
 static const int         l_ff_speed_vals[]  = { 150, 200, 300, 400, 500, 0 };
 static const choice_set  l_ff_speed = { l_ff_speed_names, l_ff_speed_vals, 6 };
-static const char *const l_quit_hold_names[] = { "Instant", "0.5 s", "1 s", "2 s", "3 s" };
-static const int         l_quit_hold_vals[]  = { 0, 500, 1000, 2000, 3000 };
-static const choice_set  l_quit_hold = { l_quit_hold_names, l_quit_hold_vals, 5 };
 static const char *const l_ff_mode_names[] = { "Hold", "Toggle" };
 
 /* A row choosing one of `set`'s values for ini [section] key, as the edit scope sees it.  A value that is not in the
@@ -261,79 +368,202 @@ static void settings_row_end(const char *section, const char *key)
         cfg_reset(section, key);
 }
 
+/* the Volume row: shown only when the core can report the volume; X goes back to the audio plugin's own default (all games) or to
+ * the global volume (this game) */
+static void settings_volume(void)
+{
+    int ov = cfg_overridden("audio", "volume");
+    int unset = !cfg_get_scoped("audio", "volume", "")[0];
+    int v = unset ? audio_volume_now() : cfg_get_scoped_int("audio", "volume", 80);
+    int game = g_cfg.scope == CFG_SCOPE_GAME, dir;
+    char text[24];
+
+    if (v < 0)
+        v = 80;
+    snprintf(text, sizeof(text), "%d%%", v);
+    dir = ui_step("Volume", text);
+    ui_mark_last(menu_mark_kind(ov));
+    if (dir != 0)
+    {
+        v += dir * 5;
+        v = v < 0 ? 0 : v > 100 ? 100 : v;
+        cfg_set_int("audio", "volume", v);
+        audio_apply_volume();
+    }
+    else if (ui_x_last())
+    {
+        if (game && ov)
+        {
+            cfg_reset("audio", "volume");
+            set_settings_msg("Volume: back to the global one", 1);
+        }
+        else if (!game)
+        {
+            ini_remove(g_cfg.ini, "audio", "volume");
+            cfg_apply();
+            set_settings_msg("Volume: audio plugin default", 0);
+        }
+        audio_apply_volume();
+    }
+}
+
+/* "Save Game Profile": every per-game-capable setting in force becomes this game's own */
+static void save_game_profile(void)
+{
+    char t[64];
+    cfg_pin_profile();
+    remap_pin_game();
+    fif_pin_game();
+    cfg_save();
+    remap_flush();
+    snprintf(t, sizeof(t), "%d settings saved for this game", cfg_game_setting_count());
+    set_settings_msg(t, 1);
+    toast_show(TOAST_OK, "Game profile saved");
+}
+
 static void page_settings(void)
 {
     int dim = g_cfg.dim_percent;
-    int hints = g_cfg.show_hints;
     int toasts = g_cfg.show_toasts;
     int autosave = cfg_get_scoped_bool("states", "autosave_on_quit", 0);
-    int swap = g_cfg.swap_ab;
+    int confirm = cfg_get_scoped_bool("hotkeys", "confirm_quit", 1);
     int ff_mode = strcasecmp(cfg_get_scoped("hotkeys", "fast_forward_mode", "hold"), "toggle") == 0;
     int game = g_cfg.scope == CFG_SCOPE_GAME;
+    int foir = av_foir_available(), vol = audio_volume_now() >= 0;
+    int nset = cfg_game_setting_count(), have_game = cfg_game_available();
+    int rows, id = 0, apply_id;
     char title[32];
+    static const char *const scopes[2] = { "All games", "This game" };
+    int sc = game;
 
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Settings"), 9, 1);
-    if (!game)
+    if (l_set_msg[0] && ui_focus_get() != l_set_msg_focus)
+        set_settings_msg("", 0);                  /* a message belongs to the row it was made on */
+    rows = 1 + foir + 1 + vol + 4 + (game ? 0 : 2) + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
+    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Settings"), rows, 1);
+    if (ui_item("Controls", ">") == 1)
+        push(PAGE_CONTROLS);
+    id++;
+    if (foir)
     {
-        /* the look of the menu itself is not a per-game matter */
-        if (ui_slider("Dim", &dim, 0, 90, 5, "%"))
-            cfg_set_int("menu", "dim_percent", dim);
-        if (ui_toggle("Hints", &hints))
-        {
-            cfg_set_bool("menu", "show_hints", hints);
-            ui_set_hints_visible(g_cfg.show_hints);
-        }
-        if (ui_toggle("Notices", &toasts))
-            cfg_set_bool("menu", "show_toasts", toasts);
-        if (ui_toggle("Swap A/B", &swap))
-            cfg_set_bool("input", "swap_ab", swap);
+        if (ui_item("FOIR Options", ">") == 1)
+            push(PAGE_FOIR);
+        id++;
     }
-    if (ui_toggle("Auto-save on quit", &autosave))
+    if (ui_item("Hotkeys", ">") == 1)
+        push(PAGE_HOTKEYS);
+    id++;
+    if (vol)
+    {
+        settings_volume();
+        id++;
+    }
+    if (ui_toggle("Auto-Save", &autosave))
     {
         cfg_set_bool("states", "autosave_on_quit", autosave);
         menu_set_quit_saves(g_cfg.autosave_on_quit);
     }
     settings_row_end("states", "autosave_on_quit");
-    if (ui_choice("Fast-forward", &ff_mode, l_ff_mode_names, 2))
+    if (ui_toggle("Confirm Quit", &confirm))
+        cfg_set_bool("hotkeys", "confirm_quit", confirm);
+    settings_row_end("hotkeys", "confirm_quit");
+    if (ui_choice("Fast-Forward", &ff_mode, l_ff_mode_names, 2))
         cfg_set("hotkeys", "fast_forward_mode", ff_mode ? "toggle" : "hold");
     settings_row_end("hotkeys", "fast_forward_mode");
-    settings_choice("FF speed", &l_ff_speed, "%", "hotkeys", "fast_forward_speed", 300);
+    settings_choice("FF Speed", &l_ff_speed, "%", "hotkeys", "fast_forward_speed", 300);
     settings_row_end("hotkeys", "fast_forward_speed");
-    settings_choice("Quit hold", &l_quit_hold, " ms", "hotkeys", "quit_hold_ms", 1000);
-    settings_row_end("hotkeys", "quit_hold_ms");
-    if (ui_item("Hotkeys", ">") == 1)
-        push(PAGE_HOTKEYS);
-    if (ui_item("Game profile", ">") == 1)
-        push(PAGE_PROFILE);
+    id += 4;
+    if (!game)
+    {
+        /* the look of the menu itself is not a per-game matter */
+        if (ui_slider("Dim", &dim, 0, 90, 5, "%"))
+            cfg_set_int("menu", "dim_percent", dim);
+        if (ui_toggle("Notices", &toasts))
+            cfg_set_bool("menu", "show_toasts", toasts);
+        id += 2;
+    }
+    apply_id = id++;
+    /* where the changes made in the Controls / FOIR Options / Settings pages are saved */
+    if (ui_choice("Apply to", &sc, scopes, have_game ? 2 : 1))
+    {
+        cfg_set_scope(sc ? CFG_SCOPE_GAME : CFG_SCOPE_GLOBAL);
+        set_settings_msg("", 0);
+        ui_focus_restore(apply_id + (sc ? -2 : 2), ui_scroll_get());       /* Dim and Notices come or go: the row moved */
+    }
+    if (ui_button_dis("Save Game Profile", !have_game) > 0)
+        save_game_profile();
+    id++;
+    if (nset > 0 && ui_button("Reset Game Profile"))
+        push(PAGE_CONFIRM_PROFILE_RESET);
     if (ui_button("Back"))
         pop();
-    ui_status_bar(game ? "Green bar: saved for this game   X Reset" : "Saved for all games", 0);
-    ui_panel_end(game ? "A Select   Left/Right Change   X Reset   B Back" : "A Select   Left/Right Change   B Back");
+
+    if (l_set_msg[0])
+        ui_status_bar(l_set_msg, l_set_msg_kind);
+    else if (ui_focus_get() == apply_id)
+        ui_status_bar("Where Controls/FOIR/Settings save", 0);
+    else if (ui_focus_get() == apply_id + 1)
+    {
+        char t[64];
+        if (!have_game)
+            snprintf(t, sizeof(t), "This ROM has no ID: no game settings");
+        else if (nset > 0)
+            snprintf(t, sizeof(t), "%d setting%s saved for this game", nset, nset == 1 ? "" : "s");
+        else
+            snprintf(t, sizeof(t), "Keeps these settings for this game");
+        ui_status_bar(t, 0);
+    }
+    else
+        ui_status_bar(menu_scope_status(), 0);
+    ui_panel_end(game ? "A Select  <> Change  X Reset  B Back" : "A Select  <> Change  B Back");
 }
+
+static void page_confirm_profile_reset(void)
+{
+    ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
+    ui_label("Forget this game's");
+    ui_label("own settings?");
+    if (menu_yes_no())
+    {
+        remap_reset_game();
+        cfg_reset_all_game();
+        cfg_save();
+        remap_flush();
+        fif_reapply_all();                /* foir's live options go back to the global values */
+        audio_apply_volume();
+        pop();
+        set_settings_msg("This game uses the global settings", 1);      /* after the pop: the message belongs to the row we land on */
+    }
+    ui_panel_end("A Select   B Back");
+}
+
+/* ---- Reset, Quit and the Save States dialogs --------------------------------------------------------------- */
 
 static menu_result page_reset(void)
 {
     menu_result r = MENU_NONE;
-    ui_panel_begin("Reset", 4);
+    ui_panel_begin_ex("Reset", 6, UI_W_DIALOG);
+    ui_grid(2);
     ui_label("Reset the game?");
+    ui_row_begin(2);
     if (ui_button("No"))                       pop();
-    if (ui_button("Soft reset"))               r = MENU_RESET_SOFT;
-    if (ui_button("Hard reset (power cycle)")) r = MENU_RESET;
+    if (ui_button("Yes"))                      r = MENU_RESET_SOFT;
+    if (ui_button_center("Hard (Power Cycle)")) r = MENU_RESET;
     ui_panel_end("A Select   B Back");
     return r;
 }
 
-static menu_result page_confirm(const char *title, const char *question, const char *question2, menu_result yes)
+/* question, an optional note under it, No / Yes: 1 on Yes */
+static int page_confirm(const char *title, const char *question, const char *note)
 {
-    menu_result r = MENU_NONE;
-    ui_panel_begin(title, question2 ? 4 : 3);
+    int yes;
+    ui_panel_begin_ex(title, note ? 6 : 4, UI_W_DIALOG);
+    ui_grid(2);
     ui_label(question);
-    if (question2)
-        ui_label(question2);
-    if (ui_button("No"))  pop();
-    if (ui_button("Yes")) r = yes;
+    if (note)
+        ui_label(note);
+    yes = menu_yes_no();
     ui_panel_end("A Select   B Back");
-    return r;
+    return yes;
 }
 
 menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
@@ -347,7 +577,7 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
     ui_begin(w, h, pressed);
     switch (page)
     {
-        case PAGE_MAIN:          r = page_main(); if (back && r == MENU_NONE) r = MENU_RESUME; break;
+        case PAGE_MAIN:          r = page_main(); if (back && r == MENU_NONE && l_stack[l_depth - 1] == PAGE_MAIN) r = MENU_RESUME; break;
         case PAGE_STATES:
             r = page_states(pressed);
             if (back && r == MENU_NONE && l_stack[l_depth - 1] == PAGE_STATES) pop();
@@ -357,19 +587,18 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
             char q[40];
             snprintf(q, sizeof(q), "Overwrite slot %d?", l_action_slot);
             /* a slot that only has a Project64 state is saved as a Mupen64Plus .st; the .pj file is left alone */
-            r = page_confirm("Confirm", q, l_info[l_action_slot].pj64 ? "(Project64 state; saved as .st)" : NULL, MENU_SAVE_STATE);
-            if (back) pop();
+            if (page_confirm("Confirm", q, l_info[l_action_slot].pj64 ? "(PJ64 state)" : NULL))
+                r = MENU_SAVE_STATE;
+            else if (back)
+                pop();
             break;
         }
         case PAGE_CONFIRM_DELETE:
         {
             char q[40];
             int yes;
-            if (l_action_slot != l_sel)
-                l_action_slot = l_sel;
             snprintf(q, sizeof(q), l_sel == STATES_AUTO_SLOT ? "Delete the auto-save?" : "Delete slot %d?", l_sel);
-            yes = (page_confirm("Confirm", q, l_sel == STATES_AUTO_SLOT ? "(and its backups)" : l_info[l_sel].pj64 ? "(the Project64 state)" : NULL,
-                            MENU_RESET) == MENU_RESET);
+            yes = page_confirm("Confirm", q, l_sel == STATES_AUTO_SLOT ? "(and its backups)" : l_info[l_sel].pj64 ? "(the PJ64 state)" : NULL);
             if (yes)
             {
                 if (states_delete(l_sel) == 0)
@@ -388,19 +617,21 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
             break;
         }
         case PAGE_SETTINGS:      page_settings(); if (back) { pop(); cfg_save(); } break;
+        case PAGE_CONFIRM_PROFILE_RESET: page_confirm_profile_reset(); if (back) pop(); break;
         case PAGE_CONFIRM_RESET: r = page_reset(); if (back) pop(); break;
-        case PAGE_CONTROLS: case PAGE_PRESETS: case PAGE_CONFIRM_PRESET: case PAGE_BUTTONS: case PAGE_MODLAYER:
+        case PAGE_CONTROLS: case PAGE_CONFIRM_MAPRESET: case PAGE_BUTTONS:
         case PAGE_CAPTURE: case PAGE_TEST: case PAGE_HOTKEYS: case PAGE_COMBO_CAPTURE: case PAGE_COMBO_CONFIRM:
         case PAGE_CONFIRM_CTL_RESET:
             ctl_frame(page, pressed, held, back);
             break;
-        case PAGE_VIDEO: case PAGE_AUDIO: case PAGE_PROFILE: case PAGE_CONFIRM_PROFILE_RESET:
+        case PAGE_FOIR: case PAGE_CONFIRM_FOIR_DEFAULT:
             av_frame(page, back);
             break;
         case PAGE_CONFIRM_QUIT:
-            r = l_quit_saves ? page_confirm("Confirm", "Quit the game?", "(saves the auto slot first)", MENU_QUIT)
-                             : page_confirm("Confirm", "Quit the game?", NULL, MENU_QUIT);
-            if (back) pop();
+            if (page_confirm("Quit", "Quit the game?", l_quit_saves ? "(Auto-Save Enabled)" : NULL))
+                r = MENU_QUIT;
+            else if (back)
+                pop();
             break;
     }
     ui_end();

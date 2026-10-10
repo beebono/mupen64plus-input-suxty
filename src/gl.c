@@ -136,7 +136,7 @@ typedef struct {
 
 static vertex_t l_verts[MAX_VERTS];
 static int      l_nverts;
-static GLuint   l_prog, l_atlas_tex, l_bg_tex;
+static GLuint   l_prog, l_atlas_tex, l_atlas2_tex, l_bg_tex;
 static GLint    l_loc_inv, l_loc_tex;
 static GLuint   l_cur_tex;
 static int      l_bg_w, l_bg_h;
@@ -270,6 +270,16 @@ int ugl_init_resources(void)
     }
     l_atlas_tex = make_texture(FONT_ATLAS_W, FONT_ATLAS_H, rgba, GL_NEAREST);
     free(rgba);
+    rgba = (uint8_t *) malloc(FONT2_ATLAS_W * FONT2_ATLAS_H * 4);
+    if (rgba == NULL)
+        return -1;
+    for (i = 0; i < FONT2_ATLAS_W * FONT2_ATLAS_H; i++)
+    {
+        rgba[i * 4 + 0] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = 255;
+        rgba[i * 4 + 3] = font_atlas_alpha_12x24[i];
+    }
+    l_atlas2_tex = make_texture(FONT2_ATLAS_W, FONT2_ATLAS_H, rgba, GL_NEAREST);
+    free(rgba);
     l_bg_tex = 0;
     l_cur_tex = 0;
     return p_glGetError() == GL_NO_ERROR ? 0 : -1;
@@ -279,8 +289,9 @@ void ugl_shutdown_resources(void)
 {
     if (l_prog) p_glDeleteProgram(l_prog);
     if (l_atlas_tex) p_glDeleteTextures(1, &l_atlas_tex);
+    if (l_atlas2_tex) p_glDeleteTextures(1, &l_atlas2_tex);
     if (l_bg_tex) p_glDeleteTextures(1, &l_bg_tex);
-    l_prog = l_atlas_tex = l_bg_tex = 0;
+    l_prog = l_atlas_tex = l_atlas2_tex = l_bg_tex = 0;
     free(l_cap_buf); l_cap_buf = NULL;
     free(l_rb_buf);  l_rb_buf = NULL; l_rb_size = 0;
 }
@@ -461,29 +472,53 @@ void ugl_rect(int x, int y, int w, int h, uint32_t rgba)
     quad((float) x, (float) y, (float) (x + w), (float) (y + h), cu, cv, cu, cv, rgba);
 }
 
+int ugl_text_width_f(ugl_font font, int scale, const char *str)
+{
+    return (int) strlen(str) * (font == UGL_FONT_HINT ? FONT2_GLYPH_W : FONT_GLYPH_W) * scale;
+}
+
 int ugl_text_width(int scale, const char *str)
 {
-    return (int) strlen(str) * FONT_GLYPH_W * scale;
+    return ugl_text_width_f(UGL_FONT_ITEM, scale, str);
+}
+
+int ugl_glyph_h(ugl_font font)
+{
+    return font == UGL_FONT_HINT ? FONT2_GLYPH_H : FONT_GLYPH_H;
+}
+
+void ugl_text_f(ugl_font font, int x, int y, int scale, uint32_t rgba, const char *str)
+{
+    int gw = font == UGL_FONT_HINT ? FONT2_GLYPH_W : FONT_GLYPH_W, gh = font == UGL_FONT_HINT ? FONT2_GLYPH_H : FONT_GLYPH_H;
+    int aw = font == UGL_FONT_HINT ? FONT2_ATLAS_W : FONT_ATLAS_W, ah = font == UGL_FONT_HINT ? FONT2_ATLAS_H : FONT_ATLAS_H;
+
+    bind_tex(font == UGL_FONT_HINT ? l_atlas2_tex : l_atlas_tex);
+    for (; *str; str++)
+    {
+        unsigned char c = (unsigned char) *str;
+        int idx;
+        if (c == 1)
+            idx = FONT_CELL_DOWN;
+        else if (c == 2)
+            idx = FONT_CELL_UP;
+        else if (c < FONT_FIRST_CHAR || c > FONT_LAST_CHAR)
+            idx = '?' - FONT_FIRST_CHAR;
+        else
+            idx = c - FONT_FIRST_CHAR;
+        if (c != ' ')
+        {
+            float u0 = (idx % FONT_ATLAS_COLS) * gw / (float) aw;
+            float v0 = (idx / FONT_ATLAS_COLS) * gh / (float) ah;
+            quad((float) x, (float) y, (float) (x + gw * scale), (float) (y + gh * scale),
+                 u0, v0, u0 + gw / (float) aw, v0 + gh / (float) ah, rgba);
+        }
+        x += gw * scale;
+    }
 }
 
 void ugl_text(int x, int y, int scale, uint32_t rgba, const char *str)
 {
-    bind_tex(l_atlas_tex);
-    for (; *str; str++)
-    {
-        unsigned char c = (unsigned char) *str;
-        if (c < FONT_FIRST_CHAR || c > FONT_LAST_CHAR)
-            c = '?';
-        if (c != ' ')
-        {
-            int idx = c - FONT_FIRST_CHAR;
-            float u0 = (idx % FONT_ATLAS_COLS) * FONT_GLYPH_W / (float) FONT_ATLAS_W;
-            float v0 = (idx / FONT_ATLAS_COLS) * FONT_GLYPH_H / (float) FONT_ATLAS_H;
-            quad((float) x, (float) y, (float) (x + FONT_GLYPH_W * scale), (float) (y + FONT_GLYPH_H * scale),
-                 u0, v0, u0 + FONT_GLYPH_W / (float) FONT_ATLAS_W, v0 + FONT_GLYPH_H / (float) FONT_ATLAS_H, rgba);
-        }
-        x += FONT_GLYPH_W * scale;
-    }
+    ugl_text_f(UGL_FONT_ITEM, x, y, scale, rgba, str);
 }
 
 const uint8_t *ugl_readback(int w, int h)

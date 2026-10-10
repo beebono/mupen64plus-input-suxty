@@ -589,23 +589,48 @@ void pad_format_src_short(const padsrc *s, char *out, size_t size)
     }
 }
 
+/* Generic names for the physical controls, so a mapping reads the same on every pad: face buttons by position
+ * (the SDL game controller layout: a = South, b = East, x = West, y = North), L1 / R1 .. L3 / R3, the D-pad directions. */
+static const char *const l_generic[PAD_NUM] = {
+    "DPad Up", "DPad Down", "DPad Left", "DPad Right", "South", "East", "West", "North", "L1", "R1", "Start", "Select",
+    "L3", "R3", "Guide", "L2", "R2"
+};
+
+const char *pad_generic_name(pad_button b)
+{
+    return (b >= 0 && b < PAD_NUM) ? l_generic[b] : "?";
+}
+
+/* "South", "DPad Right", "L2", "L-Stick Left"; a control that is none of these (an extra button, an unmapped axis) keeps its
+ * raw name ("Btn 12", "Axis4+") */
 void pad_format_src(int pad, const padsrc *s, char *out, size_t size)
 {
-    char raw[32];
-    int lg;
-    pad_format_src_short(s, raw, sizeof(raw));
-    lg = pad_logical_for(pad, s);
-    if (s->type != PAD_BIND_NONE && lg >= 0)
+    pad_layout lay;
+    int lg = pad_logical_for(pad, s);
+
+    if (s->type == PAD_BIND_NONE)
     {
-        char up[8];
-        size_t n;
-        snprintf(up, sizeof(up), "%s", l_names[lg]);
-        for (n = 0; up[n]; n++)
-            up[n] = (char) toupper((unsigned char) up[n]);
-        snprintf(out, size, "%s (%s)", raw, up);
+        snprintf(out, size, "-");
+        return;
     }
-    else
-        snprintf(out, size, "%s", raw);
+    if (lg >= 0)
+    {
+        snprintf(out, size, "%s", l_generic[lg]);
+        return;
+    }
+    if (s->type == PAD_BIND_AXIS && pad_layout_get(pad, &lay) == 0)
+    {
+        static const char *const dirs[2][2] = { { "Left", "Right" }, { "Up", "Down" } };       /* [y axis][+] */
+        const pad_bind *ax[4] = { &lay.lx, &lay.ly, &lay.rx, &lay.ry };
+        int i;
+        for (i = 0; i < 4; i++)
+            if (ax[i]->type == PAD_BIND_AXIS && ax[i]->index == s->index)
+            {
+                snprintf(out, size, "%c-Stick %s", i < 2 ? 'L' : 'R', dirs[i & 1][s->dir > 0]);
+                return;
+            }
+    }
+    pad_format_src_short(s, out, size);
 }
 
 /* ---- edge detection ---- */

@@ -22,7 +22,7 @@
  *
  * suxty IS the input plugin, so there is nothing to configure in another plugin and no SDL joystick call is
  * intercepted: GetKeys() asks remap_player_state() for the N64 state that the player's mapping makes of the (hotkey
- * filtered, see inputfilter.h) pad.  A change of a mapping, a preset, the deadzone or the player's pad is therefore
+ * filtered, see inputfilter.h) pad.  A change of a mapping, the D-pad swap, the deadzone or the player's pad is therefore
  * live: the next poll sees it.  Two layers: the global mapping (suxty.cfg) and the game's own (games/<md5>.cfg).
  */
 
@@ -64,8 +64,11 @@ int           remap_player_live(int player);        /* the player was present at
 const char   *remap_player_want(int player);        /* "" auto, "none", or a pad name */
 /* Chooses the pad of a player ("" auto, "none", pad name).  Returns 1 = effective now, 0 = from the next launch. */
 int           remap_set_pad(int player, const char *want);
-int           remap_apply_preset(int player, int preset, char *msg, size_t msgsize);
+/* Rebuilds the player's mapping from the pad's default layout (deadzone / range are kept); 0 ok, -1 with msg */
+int           remap_default_mapping(int player, char *msg, size_t msgsize);
+int           remap_pin_game(void);                 /* "Save Game Profile": everything in force becomes the game's own; returns how many */
 /* the N64 state this player's mapping makes of the real, unfiltered pad (the "test" page) */
 void          remap_probe(int player, n64_state *out);
+void          remap_set_probe_override(int on, const n64_state *st);   /* debug script: show this state instead */
 
 #endif /* REMAP_H */

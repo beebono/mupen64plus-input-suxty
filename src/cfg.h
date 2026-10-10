@@ -38,7 +38,8 @@
 #ifndef CFG_H
 #define CFG_H
 
-#define CFG_VERSION 2        /* [general] version: 2 = input plugin (autosave_on_quit became opt-in) */
+#define CFG_VERSION 3        /* [general] version: 2 = input plugin (autosave_on_quit became opt-in); 3 = menu refinement (Confirm Quit,
+                                C-Face shift) */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -63,9 +64,9 @@ typedef struct {
     uint32_t menu_combo;        /* pad_button mask that toggles the menu */
     uint32_t recovery_combo;    /* a second combo that always opens the menu (lock-out protection); 0 = off */
     int      dim_percent;       /* 0..90: how much the frozen game frame is darkened behind the menu */
-    int      show_hints;        /* footer button hints */
     int      swap_ab;           /* swap confirm/back */
     int      nav_deadzone;      /* % of stick travel that counts as a D-pad press */
+    int      soft_tilt_pct;     /* stick strength in percent while the Soft Tilt button is held ([input] soft_tilt_scale) */
 
     /* hotkeys: combos are masks of pad_button bits; 0 = disabled */
     uint32_t hotkey_button;     /* the hotkey button ("hotkey" in combos); the game sees a neutral pad while it is held */
@@ -77,7 +78,7 @@ typedef struct {
     uint32_t hk_quit;
     int      ff_toggle;         /* 0 = hold the combo, 1 = press to toggle */
     int      ff_speed;          /* percent (50-1000); 0 = unlimited (speed limiter off) */
-    int      quit_hold_ms;      /* the quit combo must be held this long */
+    int      confirm_quit;      /* the quit combo must be pressed twice within quitarm's window */
     int      block_game_input;  /* hide hotkey/menu input from the game (inputfilter.c) */
 
     int      autosave_on_quit;
@@ -118,7 +119,11 @@ int  cfg_reset_all_game(void);   /* removes every game entry (the whole file); r
 void cfg_set_scope(int scope);
 /* Keys that make no sense per game (menu look, recovery combo ...) always live in suxty.cfg. */
 int  cfg_key_overridable(const char *section, const char *key);
-int  cfg_game_override_count(void);
+int  cfg_game_override_count(void);   /* entries (keys) in the game file */
+int  cfg_game_setting_count(void);    /* settings as the user sees them: a pad's whole mapping and the players' choices count once */
+/* "Save Game Profile": copies the global value of every per-game-capable setting this game does not have its own value for
+ * into the game layer (controller mappings and foir's options are pinned by remap.c / foir_if.c); returns how many were written. */
+int  cfg_pin_profile(void);
 void cfg_shutdown(void);
 
 /* Combo helpers for the hotkey UI.  The cfg stores combos as text: buttons joined with '+', and the word

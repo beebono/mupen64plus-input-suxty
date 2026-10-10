@@ -606,7 +606,7 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
             char q[40];
             int yes;
             snprintf(q, sizeof(q), l_sel == STATES_AUTO_SLOT ? "Delete the auto-save?" : "Delete slot %d?", l_sel);
-            yes = page_confirm("Confirm", q, l_sel == STATES_AUTO_SLOT ? "(and its backups)" : l_info[l_sel].pj64 ? "(the PJ64 state)" : NULL);
+            yes = page_confirm("Confirm", q, l_sel == STATES_AUTO_SLOT ? "(and its backups)" : l_info[l_sel].pj64 ? "(PJ64 state)" : NULL);
             if (yes)
             {
                 if (states_delete(l_sel) == 0)

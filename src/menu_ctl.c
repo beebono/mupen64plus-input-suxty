@@ -35,6 +35,7 @@
 #include "remap.h"
 #include "toast.h"
 #include "ui.h"
+#include "uitext.h"
 
 #define CAPTURE_TIMEOUT_MS   5000u     /* a control capture gives up after this long without input */
 #define COMBO_IDLE_MS        7000u     /* a combo capture gives up after this long without a button */
@@ -68,7 +69,7 @@ static struct {
 static const char *ctl_title(int ctl, char *buf, size_t size)
 {
     if (ctl == CAP_CFACE)
-        snprintf(buf, size, "C-Face shift");
+        snprintf(buf, size, "C-Face Shift");
     else if (ctl == CAP_TILT)
         snprintf(buf, size, "Soft Tilt");
     else
@@ -99,7 +100,8 @@ static n64_ctl opposite(n64_ctl c)
 static void assign_src(int p, int ctl, const padsrc *s)
 {
     padmap *m = remap_edit(p);
-    char what[112], text[48], from[32] = "";
+    char text[48], from[32] = "";
+    char title[48];
     pad_layout lay;
     int have_lay = pad_layout_get(remap_player_pad(p), &lay) == 0;
     int k;
@@ -114,7 +116,7 @@ static void assign_src(int p, int ctl, const padsrc *s)
     if (ctl != CAP_CFACE && padsrc_same(&m->cface, s))
     {
         padmap_set_cface(m, NULL, &(padsrc) { 0 });
-        snprintf(from, sizeof(from), "C-Face shift");
+        snprintf(from, sizeof(from), "C-Face Shift");
     }
     if (ctl != CAP_TILT && padsrc_same(&m->softtilt, s))
     {
@@ -143,11 +145,9 @@ static void assign_src(int p, int ctl, const padsrc *s)
     }
     remap_commit(p);
     pad_format_src(remap_player_pad(p), s, text, sizeof(text));
-    snprintf(what, sizeof(what), "%s = %s", ctl == CAP_CFACE ? "C-Face shift" : ctl == CAP_TILT ? "Soft Tilt" : n64_ctl_name((n64_ctl) ctl), text);
-    if (from[0])
-        snprintf(l_msg, sizeof(l_msg), "%s (from %s)", what, from);
-    else
-        snprintf(l_msg, sizeof(l_msg), "%s", what);
+    /* "South -> A (was B)": the control, what it drives now, and what it drove before (the status line wraps it when it is long) */
+    snprintf(title, sizeof(title), "%s", ctl == CAP_CFACE ? "C-Face Shift" : ctl == CAP_TILT ? "Soft Tilt" : n64_ctl_name((n64_ctl) ctl));
+    uitext_remap_msg(l_msg, sizeof(l_msg), text, title, from);
     l_msg_kind = 1;
 }
 
@@ -166,7 +166,7 @@ static void page_capture(void)
         ui_label("Press the control to use");
         ui_label(who);
         ui_progress(left > 0 ? (int) (left * 1000 / (int32_t) CAPTURE_TIMEOUT_MS) : 0);
-        ui_label("No input: cancel");
+        ui_label("No Input: Cancel");
     }
     ui_panel_end("Move a stick, press a button");
 
@@ -248,7 +248,7 @@ static void page_controls(int back)
     ui_mark_last(mapmark);
     /* what the D-pad of this pad drives: the N64 D-pad, or the stick (a software swap of the two groups of channels) */
     role = padmap_dpad_is_stick(m, remap_player_pad(p) >= 0 && pad_layout_get(remap_player_pad(p), &lay) == 0 ? &lay : NULL);
-    if (ui_choice("D-pad acts as", &role, dpad_names, 2))
+    if (ui_choice("D-pad Acts As", &role, dpad_names, 2))
     {
         remap_edit(p)->dpad_swap = !m->dpad_swap;
         remap_commit(p);
@@ -257,25 +257,25 @@ static void page_controls(int back)
     ui_mark_last(mapmark);
     dz = m->deadzone;
     pk = m->peak;
-    if (ui_slider("Stick deadzone", &dz, 0, 40, 1, "%"))
+    if (ui_slider("Stick Deadzone", &dz, 0, 40, 1, "%"))
     {
         remap_edit(p)->deadzone = dz;
         remap_commit(p);
     }
     ui_mark_last(mapmark);
-    if (ui_slider("Stick range", &pk, 50, 100, 1, "%"))
+    if (ui_slider("Stick Range", &pk, 50, 100, 1, "%"))
     {
         remap_edit(p)->peak = pk;
         remap_commit(p);
     }
     ui_mark_last(mapmark);
-    if (ui_item("Test controller", ">") == 1)
+    if (ui_item("Test Controller", ">") == 1)
         menu_push(PAGE_TEST);
-    if (ui_button_dis("Reset to default mapping", remap_player_pad(p) < 0) > 0)
+    if (ui_button_dis("Reset to Default Mapping", remap_player_pad(p) < 0) > 0)
         menu_push(PAGE_CONFIRM_MAPRESET);
     if (scope_game())
     {
-        if (ui_button_dis("Reset to global", !(remap_pad_overridden(p) || remap_player_want_overridden(p))) > 0)
+        if (ui_button_dis("Reset to Global", !(remap_pad_overridden(p) || remap_player_want_overridden(p))) > 0)
             menu_push(PAGE_CONFIRM_CTL_RESET);
     }
     if (ui_button("Back"))
@@ -346,7 +346,7 @@ static void page_map(int back)
     const padmap *m = remap_get(p);
     int pad = remap_player_pad(p);
 
-    snprintf(title, sizeof(title), "Buttons - P%d%s", p + 1, scope_game() ? " (game)" : "");
+    snprintf(title, sizeof(title), "Buttons - P%d%s", p + 1, scope_game() ? " (Game)" : "");
     ui_next_panel_width(UI_W_WIDE);
     ui_panel_begin_scroll(title, N64_NUM + 3, 1);
     for (n = 0; n < N64_NUM; n++)
@@ -373,14 +373,14 @@ static void page_map(int back)
         pad_format_src(pad, &m->cface, text, sizeof(text));
     else
         snprintf(text, sizeof(text), "-");
-    r = ui_item("C-Face shift", text);
+    r = ui_item("C-Face Shift", text);
     if (r == 1)
         start_capture(CAP_CFACE);
     else if (r == 2 && m->cface.type != PAD_BIND_NONE)
     {
         padmap_set_cface(remap_edit(p), NULL, NULL);
         remap_commit(p);
-        set_msg("C-Face shift cleared", 0);
+        set_msg("C-Face Shift cleared", 0);
     }
     if (m->softtilt.type != PAD_BIND_NONE)
         pad_format_src(pad, &m->softtilt, text, sizeof(text));
@@ -418,44 +418,25 @@ static void page_map(int back)
 
 /* ---- controller test ------------------------------------------------------------------------------ */
 
-static void join_names(char *out, size_t size, const char *prefix, uint32_t bits, int first, int count, const char *const *names)
-{
-    int i;
-    size_t n = (size_t) snprintf(out, size, "%s", prefix);
-    int any = 0;
-    for (i = 0; i < count; i++)
-        if (bits & (1u << (first + i)))
-        {
-            n += (size_t) snprintf(out + n, n < size ? size - n : 0, "%s%s", any ? " " : "", names[i]);
-            any = 1;
-        }
-    if (!any)
-        snprintf(out + n, n < size ? size - n : 0, "-");
-}
+/* The N64 buttons of the Buttons row, in the order of the row, with the N64's own (short) names */
+static const uitext_btn l_test_btns[] = {
+    { 1u << N64_A, "A" }, { 1u << N64_B, "B" }, { 1u << N64_Z, "Z" }, { 1u << N64_START, "St" }, { 1u << N64_L, "L" }, { 1u << N64_R, "R" },
+};
 
 static uint32_t l_test_hold;           /* when B went down on the Test page (0 = not held) */
+
+static int clamp99(int v) { return v < -99 ? -99 : v > 99 ? 99 : v; }
 
 static void page_test(uint32_t held)
 {
     n64_state st;
-    char l1[64], l2[64], l3[64], l4[64], l5[48];
-    const char *cells[3], *cells2[3];
-    static const char *const face[] = { "A", "B", "Z", "Start", "L", "R" };
-    static const char *const dir[] = { "Up", "Down", "Left", "Right" };
+    char bghost[40], bon[40], dpad[UITEXT_ARROWS_LEN + 1], cpad[UITEXT_ARROWS_LEN + 1], stick[24], l5[48];
+    uint32_t b;
     uint32_t now = SDL_GetTicks();
-    int permille = 0, n2 = 1;
+    int permille = 0;
 
     remap_probe(l_player, &st);
-    join_names(l1, sizeof(l1), "BTN: ", st.buttons, N64_A, 6, face);
-    join_names(l2, sizeof(l2), "D-pad: ", st.buttons, N64_DUP, 4, dir);
-    join_names(l3, sizeof(l3), "C: ", st.buttons, N64_CUP, 4, dir);
-    snprintf(l4, sizeof(l4), "Stick %+d %+d", st.sx * 80 / 32767, -st.sy * 80 / 32767);
-    cells[0] = l1; cells[1] = l2; cells[2] = l3;
-    cells2[0] = l4;
-    if (st.cshift)
-        cells2[n2++] = "C-Face";
-    if (st.tilt)
-        cells2[n2++] = "Soft Tilt";
+    b = st.buttons;
 
     /* B is an N64 button here, so a tap must not leave: hold it */
     if (held & PADBIT(PAD_B))
@@ -467,13 +448,32 @@ static void page_test(uint32_t held)
     else
         l_test_hold = 0;
 
-    ui_panel_begin_ex("Test controller", 8, UI_W_DIALOG);
-    ui_text_cells(cells, 3);
-    ui_text_cells(cells2, n2);
+    ui_next_panel_no_footer();                    /* the hold bar says everything the footer would */
+    ui_panel_begin_ex("Test Controller", 10, UI_W_DIALOG);
+    {
+        /* every cell has a fixed width: an arrow keeps its place (dim when up), nothing shifts as inputs change */
+        ui_cell top[2], mid[3], bt;
+        uitext_arrows((b >> N64_DUP) & 1, (b >> N64_DDOWN) & 1, (b >> N64_DLEFT) & 1, (b >> N64_DRIGHT) & 1, dpad);
+        uitext_arrows((b >> N64_CUP) & 1, (b >> N64_CDOWN) & 1, (b >> N64_CLEFT) & 1, (b >> N64_CRIGHT) & 1, cpad);
+        top[0] = (ui_cell) { "D-pad", UITEXT_ARROWS_ALL, dpad };
+        top[1] = (ui_cell) { "C", UITEXT_ARROWS_ALL, cpad };
+        ui_cells(top, 2);
+
+        /* all the N64 buttons, always in the same places: dim, and lit while they are down */
+        uitext_btn_cells(l_test_btns, (int) (sizeof(l_test_btns) / sizeof(l_test_btns[0])), b, bghost, bon, sizeof(bghost));
+        bt = (ui_cell) { "Buttons", bghost, bon };
+        ui_cells(&bt, 1);
+
+        snprintf(stick, sizeof(stick), "%+3d %+3d", clamp99(st.sx * 80 / 32767), clamp99(-st.sy * 80 / 32767));
+        mid[0] = (ui_cell) { "Stick", NULL, stick };
+        mid[1] = (ui_cell) { NULL, "C-Face", st.cshift ? "C-Face" : "" };
+        mid[2] = (ui_cell) { NULL, "Soft Tilt", st.tilt ? "Soft Tilt" : "" };
+        ui_cells(mid, 3);
+    }
     snprintf(l5, sizeof(l5), "%s", remap_player_pad(l_player) >= 0 ? "Press buttons on the pad" : "No pad for this player");
     ui_label(l5);
-    ui_hold_bar("Hold B 3 sec.", permille);
-    ui_panel_end("Hold B 3 sec. to go back");
+    ui_hold_bar("Hold B 3 Sec. to Go Back", permille);
+    ui_panel_end(NULL);
     if (l_test_hold != 0 && now - l_test_hold >= TEST_EXIT_HOLD_MS)
     {
         l_test_hold = 0;
@@ -493,13 +493,13 @@ typedef struct {
 } hk_row;
 
 static const hk_row l_hk[] = {
-    { "hotkey_button", "Hotkey button", 0 },
+    { "hotkey_button", "Hotkey Button", 0 },
     { "menu_combo",    "Menu",          0 },
-    { "quick_save",    "Quick-save",    1 },
-    { "quick_load",    "Quick-load",    1 },
-    { "next_slot",     "Next slot",     1 },
-    { "prev_slot",     "Prev slot",     1 },
-    { "fast_forward",  "Fast-forward",  1 },
+    { "quick_save",    "Quick-Save",    1 },
+    { "quick_load",    "Quick-Load",    1 },
+    { "next_slot",     "Next Slot",     1 },
+    { "prev_slot",     "Prev Slot",     1 },
+    { "fast_forward",  "Fast-Forward",  1 },
     { "quit",          "Quit",          1 },
 };
 #define HK_COUNT ((int) (sizeof(l_hk) / sizeof(l_hk[0])))
@@ -749,7 +749,7 @@ static void page_combo_capture(uint32_t held)
     ui_label(l_cc.idx == 0 ? "Press the hotkey button" : "Hold the buttons, then let go");
     ui_label_hi((l_cc.acc | eff) ? disp : "...");
     ui_progress(left > 0 ? (int) (left * 1000 / (int32_t) COMBO_IDLE_MS) : 0);
-    ui_label("No input: cancel");
+    ui_label("No Input: Cancel");
     ui_panel_end("Hold the combo, then release");
 
     if (l_cc.acc != 0 && eff == 0)
@@ -772,12 +772,12 @@ static void page_combo_confirm(uint32_t pressed)
 
     cfg_combo_display(g_cfg.menu_combo, disp, sizeof(disp));
     snprintf(t, sizeof(t), "Reverting in %d s", left > 0 ? (left + 999) / 1000 : 0);
-    ui_panel_begin_ex("Keep this menu combo?", 10, UI_W_WIDE);
+    ui_panel_begin_ex("Keep This Menu Combo?", 10, UI_W_WIDE);
     ui_label("Press the new combo now:");
     ui_label_hi(disp);
     ui_progress(left > 0 ? (int) (left * 1000 / (int32_t) CONFIRM_TIMEOUT_MS) : 0);
     ui_label(t);
-    ui_label("(B: revert)");
+    ui_label("(B: Revert)");
     ui_panel_end("Use it to keep it");
 
     if (left <= 0 || ((pressed & PADBIT(PAD_B)) && !(g_cfg.menu_combo & PADBIT(PAD_B))))

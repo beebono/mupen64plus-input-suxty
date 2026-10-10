@@ -623,7 +623,7 @@ void cfg_combo_display(uint32_t mask, char *out, size_t size)
     out[0] = 0;
     if (mask == 0)
     {
-        snprintf(out, size, "(none)");
+        snprintf(out, size, "(None)");
         return;
     }
     first = mask & scoped_hotkey();

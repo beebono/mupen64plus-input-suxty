@@ -3,8 +3,8 @@
 #   8x16   (menu items, titles)   and   12x24  (hint / footer text: 1.5x the 8x16 size, drawn at integer scale only,
 #                                              because a fractionally scaled bitmap looks uneven).
 # Both are rasterised from DejaVu Sans Mono Bold (Bitstream Vera licence: free to embed/redistribute, the glyph shapes
-# are only used as bitmap data here).  Cells 95 and 96 of each atlas hold a down and an up arrow (U+2193 / U+2191), which
-# ui text reaches as the control characters \x01 (down) and \x02 (up); the last cell is solid white (rectangles).
+# are only used as bitmap data here).  Cells 95..98 of each atlas hold a down, up, left and right arrow (U+2193 / U+2191 / U+2190 / U+2192), which
+# ui text reaches as the control characters \x01 (down), \x02 (up), \x03 (left) and \x04 (right); the last cell is solid white (rectangles).
 # Run once; the generated file is checked in, so the build does not depend on Python or PIL.
 #
 # usage: tools/gen_font.py [path/to/DejaVuSansMono-Bold.ttf] > src/font_data.c
@@ -13,7 +13,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 ttf = sys.argv[1] if len(sys.argv) > 1 else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
 COLS, ROWS = 16, 8                  # atlas = 16 x 8 cells
-ARROWS = {95: "↓", 96: "↑"}
+ARROWS = {95: "↓", 96: "↑", 97: "←", 98: "→"}
 
 
 def make_atlas(cw, ch, size):

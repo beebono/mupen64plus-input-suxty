@@ -53,7 +53,7 @@ void ugl_end(void);                                /* flush batches */
 void ugl_background_draw(int w, int h, float brightness);   /* full-screen frozen frame */
 void ugl_rect(int x, int y, int w, int h, uint32_t rgba);
 /* Two faces: UGL_FONT_ITEM is 8x16 (items, titles), UGL_FONT_HINT is 12x24 (hint / footer text).  Both are drawn at an
- * integer scale.  The control characters \x01 / \x02 are a down / up arrow. */
+ * integer scale.  The control characters \x01 .. \x04 are a down, up, left and right arrow. */
 typedef enum { UGL_FONT_ITEM = 0, UGL_FONT_HINT = 1 } ugl_font;
 void ugl_text(int x, int y, int scale, uint32_t rgba, const char *str);              /* UGL_FONT_ITEM */
 int  ugl_text_width(int scale, const char *str);

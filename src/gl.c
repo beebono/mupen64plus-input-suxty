@@ -501,6 +501,10 @@ void ugl_text_f(ugl_font font, int x, int y, int scale, uint32_t rgba, const cha
             idx = FONT_CELL_DOWN;
         else if (c == 2)
             idx = FONT_CELL_UP;
+        else if (c == 3)
+            idx = FONT_CELL_LEFT;
+        else if (c == 4)
+            idx = FONT_CELL_RIGHT;
         else if (c < FONT_FIRST_CHAR || c > FONT_LAST_CHAR)
             idx = '?' - FONT_FIRST_CHAR;
         else

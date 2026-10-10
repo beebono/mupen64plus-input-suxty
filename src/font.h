@@ -33,11 +33,15 @@
 #define FONT_ATLAS_H   128
 #define FONT_FIRST_CHAR 32
 #define FONT_LAST_CHAR  126
-/* two arrow glyphs live in the cells after '~'; text reaches them as these control characters */
+/* four arrow glyphs live in the cells after '~'; text reaches them as these control characters */
 #define FONT_CH_DOWN    "\x01"
 #define FONT_CH_UP      "\x02"
+#define FONT_CH_LEFT    "\x03"
+#define FONT_CH_RIGHT   "\x04"
 #define FONT_CELL_DOWN  95
 #define FONT_CELL_UP    96
+#define FONT_CELL_LEFT  97
+#define FONT_CELL_RIGHT 98
 /* the last cell of the atlas is solid white; used for filled rectangles */
 #define FONT_SOLID_CELL 127
 

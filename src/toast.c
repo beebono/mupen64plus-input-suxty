@@ -31,6 +31,7 @@
 
 #define COL_BG      UGL_RGBA(10, 14, 22, 225)
 #define FADE_MS     300
+#define NOTICE_MIN_MS 2500          /* in the menu a notice is the only feedback of what was just done: it stays at least this long */
 
 static int      l_enabled = 1;
 static int      l_duration = 1800;
@@ -38,16 +39,50 @@ static char     l_text[96];
 static toast_kind l_kind;
 static uint32_t l_until;           /* SDL_GetTicks() deadline; 0 = none */
 static char     l_badge[24];
+static int      l_menu_open;
+static char     l_note[96];
+static toast_kind l_note_kind;
+static uint32_t l_note_until;      /* the menu's notice (see toast_set_menu_open()) */
 
 void toast_set_enabled(int enabled)     { l_enabled = enabled; if (!enabled) l_until = 0; }
 void toast_set_duration_ms(int ms)      { l_duration = ms < 300 ? 300 : ms > 10000 ? 10000 : ms; }
-void toast_clear(void)                  { l_until = 0; }
+void toast_clear(void)                  { l_until = 0; l_note_until = 0; }
+
+void toast_set_menu_open(int open)
+{
+    l_menu_open = open;
+    l_note_until = 0;
+}
+
+int toast_menu_notice(char *out, size_t size, int *kind)
+{
+    if (l_note_until == 0 || (int32_t) (l_note_until - SDL_GetTicks()) <= 0)
+    {
+        l_note_until = 0;
+        return 0;
+    }
+    snprintf(out, size, "%s", l_note);
+    *kind = l_note_kind == TOAST_OK ? 1 : l_note_kind == TOAST_ERROR ? -1 : 0;
+    return 1;
+}
 
 void toast_show(toast_kind kind, const char *fmt, ...)
 {
     va_list ap;
     if (!l_enabled && kind != TOAST_ERROR)
         return;
+    if (l_menu_open)
+    {
+        uint32_t ms = (uint32_t) (l_duration < NOTICE_MIN_MS ? NOTICE_MIN_MS : l_duration) + (kind == TOAST_ERROR ? 1200u : 0u);
+        va_start(ap, fmt);
+        vsnprintf(l_note, sizeof(l_note), fmt, ap);
+        va_end(ap);
+        l_note_kind = kind;
+        l_note_until = SDL_GetTicks() + ms;
+        if (l_note_until == 0)
+            l_note_until = 1;
+        return;
+    }
     va_start(ap, fmt);
     vsnprintf(l_text, sizeof(l_text), fmt, ap);
     va_end(ap);

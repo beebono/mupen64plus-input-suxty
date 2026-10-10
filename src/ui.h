@@ -74,6 +74,7 @@ void ui_focus_restore(int index, int top);             /* back to a page: its fo
 void ui_panel_begin(const char *title, int rows);                         /* UI_W_DIALOG wide, `rows` whole rows */
 void ui_panel_begin_ex(const char *title, int rows2, int width_chars);   /* body height in half rows */
 void ui_panel_end(const char *hint);
+void ui_next_panel_no_footer(void);                       /* the next panel (until its ui_panel_end) has no footer line */
 void ui_panel_end_k(const char *hint, int kind);          /* the footer as a message: kind > 0 good, < 0 error */
 
 /* Grid pages: ui_grid(n), called after the panel begins, says how many columns the page has (full-width rows then span all of them, for navigation);
@@ -86,6 +87,9 @@ int  ui_button(const char *label);                     /* 1 when activated this 
 int  ui_button_dis(const char *label, int disabled);   /* dimmed and inert when disabled; 1 activated, -1 activated while disabled */
 int  ui_button_center(const char *label);              /* a full-width row with its label centred */
 int  ui_toggle(const char *label, int *value);         /* 1 when changed */
+/* a setting that does not apply here: shown in its place, dimmed and inert (focusable, so the page can say why) */
+void ui_toggle_locked(const char *label, int value);
+void ui_slider_locked(const char *label, int value, const char *suffix);
 
 typedef struct {
     char title[24];      /* "Slot 3" */
@@ -96,7 +100,8 @@ typedef struct {
 } ui_card;
 /* horizontal slot carousel (3 rows tall, focusable: Left / Right on it return -1 / +1, the page changes the slot) */
 int  ui_carousel(const ui_card *cards, int count, int sel);
-/* half-row status line; kind > 0 good, < 0 error, 0 neutral */
+/* half-row status line; kind > 0 good, < 0 error, 0 neutral.  (A toast made while the menu is open replaces the text of this
+ * line, of ui_status_bar() or, on a page without one, of the footer, until it expires; the page's own text is untouched.) */
 void ui_status(const char *text, int kind);
 
 int  ui_slider(const char *label, int *value, int min, int max, int step, const char *suffix);
@@ -104,7 +109,7 @@ int  ui_slider(const char *label, int *value, int min, int max, int step, const 
 /* Scrolling list: shows `rows` rows (fewer on a small screen, then it scrolls and shows a slim scroll bar at the right edge) of
  * however many the page draws, and keeps the focus in view.  with_status reserves a line for ui_status_bar() under the list. */
 void ui_panel_begin_scroll(const char *title, int rows, int with_status);
-void ui_status_bar(const char *text, int kind);
+void ui_status_bar(const char *text, int kind);        /* two lines: a long text wraps into the second one */
 /* the next ui_panel_begin_scroll() panel is this wide (characters) instead of UI_W_LIST */
 void ui_next_panel_width(int chars);
 /* Row with a value on the right.  Returns 1 when A is pressed on it, 2 when X is. */
@@ -122,7 +127,14 @@ int  ui_x_last(void);
 int  ui_focus_mark(void);                                /* the mark kind (0, 1, 2) of the focused row, as set by ui_mark_last() */
 void ui_progress(int permille);                          /* non-focusable bar row */
 void ui_label_hi(const char *text);                      /* highlighted centered label */
-void ui_text_cells(const char *const *texts, int n);     /* one non-focusable row of small texts side by side */
+/* One non-focusable row of small texts side by side (the Test controller): see ui_cells() in ui.c.  The body of a cell has
+ * the width of `ghost` (drawn dimmed) if there is one, else of `on` (drawn bright over it; blanks leave the ghost visible). */
+typedef struct {
+    const char *label;
+    const char *ghost;
+    const char *on;
+} ui_cell;
+void ui_cells(const ui_cell *cells, int n);
 void ui_hold_bar(const char *text, int permille);        /* non-focusable row: text over a progress bar */
 
 #endif /* UI_H */

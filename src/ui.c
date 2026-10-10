@@ -25,8 +25,10 @@
 #include "font.h"
 #include "gl.h"
 #include "pad.h"
+#include "toast.h"
 #include "ui.h"
 #include "uinav.h"
+#include "uitext.h"
 
 #define COL_PANEL      UGL_RGBA(14, 18, 28, 236)
 #define COL_BORDER     UGL_RGBA(70, 130, 230, 255)
@@ -41,6 +43,7 @@
 #define COL_DIS_TEXT   UGL_RGBA(140, 148, 166, 255)
 #define COL_DIS_FOCUS  UGL_RGBA(48, 60, 88, 255)
 #define COL_DIS_FOCUS_TEXT UGL_RGBA(170, 178, 194, 255)
+#define COL_GHOST      UGL_RGBA(74, 84, 106, 255)      /* the unpressed slots of the Test controller */
 
 #define UI_MAX_IDS 64
 
@@ -75,6 +78,10 @@ static int l_status_y = -1;    /* fixed status line of a scrolling panel, -1 = n
 static int l_focus_reset;      /* the focus was set during this frame (page change): ui_end() must not trust this page's count */
 static int l_restored;         /* focus and scroll position were just restored (going back): trust them for one frame */
 static int l_focus_mark;       /* ui_mark_last() kind of the focused row */
+/* a toast made while the menu is open takes the place of the page's status text (toast.h) for as long as it lives */
+static char l_notice[96];
+static int  l_notice_on, l_notice_kind;
+static int  l_has_status;      /* the page drew a status line this frame (ui_status / ui_status_bar) */
 
 static void metrics_set(ui_metrics *m, int body, int item)
 {
@@ -154,6 +161,8 @@ void ui_begin(int w, int h, uint32_t pressed)
     l_gridcols = 1;
     l_rowcols = 0;
     l_focus_mark = 0;
+    l_has_status = 0;
+    l_notice_on = toast_menu_notice(l_notice, sizeof(l_notice), &l_notice_kind);
 }
 
 void ui_end(void)
@@ -164,11 +173,29 @@ void ui_end(void)
         l_table_n = l_nfocus < UI_MAX_IDS ? l_nfocus : UI_MAX_IDS;
 }
 
-static int panel_height_for(const ui_metrics *m, int rows2)
+/* The status area under a scrolling list: two lines of the hint face, always both (a long message wraps into the second one,
+ * so the panel never changes size), and a little air above the footer. */
+static int status_area_h(const ui_metrics *m)
+{
+    return 2 * m->hint_h + m->pad;
+}
+
+static int l_footer = 1;       /* the panel being built has a footer line (ui_next_panel_no_footer() clears it until ui_panel_end()) */
+
+void ui_next_panel_no_footer(void) { l_footer = 0; }
+
+static int panel_height_for(const ui_metrics *m, int rows2, int with_status)
 {
     int title_h = FONT_GLYPH_H * m->item + 2 * m->pad;
-    int hint_h = m->hint_h + 2 * m->pad;
-    return title_h + rows2 * m->row_h / 2 + hint_h + 2 * m->pad;
+    int hint_h = l_footer ? m->hint_h + 2 * m->pad : 0;
+    return title_h + rows2 * m->row_h / 2 + (with_status ? status_area_h(m) : 0) + hint_h + 2 * m->pad;
+}
+
+/* THE rule for how tall a panel may be, for every page: it keeps the vertical margin the toasts and the main menu keep (h/24)
+ * above and below.  A page with more rows than that shows fewer of them and scrolls. */
+static int panel_max_h(const ui_metrics *m)
+{
+    return m->h - 2 * (m->h / 24);
 }
 
 void ui_panel_begin(const char *title, int rows)
@@ -176,15 +203,22 @@ void ui_panel_begin(const char *title, int rows)
     ui_panel_begin_ex(title, rows * 2, UI_W_DIALOG);
 }
 
+static void panel_begin(const char *title, int rows2, int with_status, int width_chars);
+
 /* rows2: body height in half rows; width_chars: of item text */
 void ui_panel_begin_ex(const char *title, int rows2, int width_chars)
+{
+    panel_begin(title, rows2, 0, width_chars);
+}
+
+static void panel_begin(const char *title, int rows2, int with_status, int width_chars)
 {
     ui_metrics *m = &l_m;
     int title_h, line, rows = rows2, bar_gap;
     char buf[96];
 
     /* tiny screens: step the text size down until the panel fits */
-    while (m->item > 1 && panel_height_for(m, rows) > m->h - 2 * m->pad)
+    while (m->item > 1 && panel_height_for(m, rows, with_status) > panel_max_h(m))
         metrics_set(m, m->body > m->item - 1 ? m->item - 1 : m->body, m->item - 1);
 
     title_h = FONT_GLYPH_H * m->item + 2 * m->pad;
@@ -194,8 +228,8 @@ void ui_panel_begin_ex(const char *title, int rows2, int width_chars)
     bar_gap = l_scroll_on ? 2 * m->pad : m->pad;
     m->panel_w = width_chars * FONT_GLYPH_W * m->item + 8 * m->pad;
     if (m->panel_w > m->w - 4 * m->pad) m->panel_w = m->w - 4 * m->pad;
-    m->panel_h = panel_height_for(m, rows);
-    if (m->panel_h > m->h - 2 * m->pad) m->panel_h = m->h - 2 * m->pad;
+    m->panel_h = panel_height_for(m, rows, with_status);
+    if (m->panel_h > panel_max_h(m)) m->panel_h = panel_max_h(m);
     m->panel_x = (m->w - m->panel_w) / 2;
     m->panel_y = (m->h - m->panel_h) / 2;
 
@@ -241,6 +275,18 @@ void ui_panel_end_k(const char *hint, int kind)
             ugl_rect(x, y0, w, h, COL_CELL_BG);
             ugl_rect(x, ty, w, th, COL_HINT);
         }
+    }
+    if (l_notice_on && l_scroll_on && l_status_y >= 0 && !l_has_status)
+        ui_status_bar("", 0);                      /* the page drew no status text: the notice is still shown */
+    if (!l_footer)
+    {
+        l_footer = 1;                              /* a footerless page has no room for the hint or a notice */
+        return;
+    }
+    if (l_notice_on && !l_has_status && l_status_y < 0)
+    {
+        hint = l_notice;                           /* a page without a status line: the notice takes the footer */
+        kind = l_notice_kind;
     }
     if (hint != NULL)
     {
@@ -327,16 +373,22 @@ static ui_slot place(void)
     return s;
 }
 
+typedef struct {
+    ugl_font font;
+    int      scale;
+} font_ctx;
+
+static int measure_cb(void *ctx, const char *s)
+{
+    const font_ctx *f = (const font_ctx *) ctx;
+    return ugl_text_width_f(f->font, f->scale, s);
+}
+
 /* `src` cut short with ".." until it is at most `avail` pixels wide */
 static void fit_text(char *buf, size_t size, const char *src, ugl_font font, int scale, int avail)
 {
-    size_t k = strlen(src);
-    snprintf(buf, size, "%s", src);
-    while (k > 1 && ugl_text_width_f(font, scale, buf) > avail)
-    {
-        k--;
-        snprintf(buf, size, "%.*s..", (int) k, src);
-    }
+    font_ctx f = { font, scale };
+    uitext_fit(buf, size, src, avail, measure_cb, &f);
 }
 
 static void row_bg(const ui_slot *s, uint32_t col)
@@ -356,19 +408,23 @@ static void row_outline(const ui_slot *s, int t, uint32_t col)
     ugl_rect(s->x0 + w - t, s->y, t, h, col);
 }
 
-/* label on the left, value on the right; neither may leave the row: the value keeps at least half of it, the label the rest */
-static void draw_row(const ui_slot *s, const char *label, const char *value)
+/* label on the left, value on the right; neither may leave the row: the value keeps at least half of it, the label the rest.
+ * A disabled row is dimmed like a disabled button (and outlined when it has the focus). */
+static void draw_row_ex(const ui_slot *s, const char *label, const char *value, int disabled)
 {
     ui_metrics *m = &l_m;
     int ty = s->y + m->pad, tx0 = l_tx0, avail = l_tx1 - l_tx0;
-    uint32_t fg = s->focused ? COL_TEXT_FOCUS : COL_TEXT;
+    uint32_t fg = disabled ? (s->focused ? COL_DIS_FOCUS_TEXT : COL_DIS_TEXT) : s->focused ? COL_TEXT_FOCUS : COL_TEXT;
+    uint32_t vfg = disabled ? fg : s->focused ? COL_TEXT_FOCUS : COL_VALUE;
     char lb[96], vb[96];
     int gap = FONT_GLYPH_W * m->item, vw = 0;
 
     if (s->y < 0)
         return;
     if (s->focused)
-        row_bg(s, COL_FOCUS_BG);
+        row_bg(s, disabled ? COL_DIS_FOCUS : COL_FOCUS_BG);
+    if (disabled && s->focused)
+        row_outline(s, m->body > 1 ? m->body : 2, COL_BORDER);
     if (value != NULL)
     {
         int lw = ugl_text_width(m->item, label), vmax = avail - lw - gap;
@@ -376,11 +432,16 @@ static void draw_row(const ui_slot *s, const char *label, const char *value)
             vmax = avail / 2;
         fit_text(vb, sizeof(vb), value, UGL_FONT_ITEM, m->item, vmax);
         vw = ugl_text_width(m->item, vb);
-        ugl_text(l_tx1 - vw, ty, m->item, s->focused ? COL_TEXT_FOCUS : COL_VALUE, vb);
+        ugl_text(l_tx1 - vw, ty, m->item, vfg, vb);
         avail -= vw + gap;
     }
     fit_text(lb, sizeof(lb), label, UGL_FONT_ITEM, m->item, avail);
     ugl_text(tx0, ty, m->item, fg, lb);
+}
+
+static void draw_row(const ui_slot *s, const char *label, const char *value)
+{
+    draw_row_ex(s, label, value, 0);
 }
 
 /* the room a row's value may take: at least half the row, else what the label leaves */
@@ -470,13 +531,28 @@ int ui_toggle(const char *label, int *value)
 {
     ui_slot s = place();
     int changed = 0;
-    draw_row(&s, label, *value ? "ON" : "OFF");
+    draw_row(&s, label, *value ? "On" : "Off");
     if (s.focused && (l_activate || l_adjust != 0))
     {
         *value = !*value;
         changed = 1;
     }
     return changed;
+}
+
+/* The rows of a setting that cannot be changed here (it is not a per-game one): in place and focusable, but dimmed and inert. */
+void ui_toggle_locked(const char *label, int value)
+{
+    ui_slot s = place();
+    draw_row_ex(&s, label, value ? "On" : "Off", 1);
+}
+
+void ui_slider_locked(const char *label, int value, const char *suffix)
+{
+    ui_slot s = place();
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%d%s", value, suffix ? suffix : "");
+    draw_row_ex(&s, label, buf, 1);
 }
 
 int ui_slider(const char *label, int *value, int min, int max, int step, const char *suffix)
@@ -589,14 +665,32 @@ int ui_carousel(const ui_card *cards, int count, int sel)
 
 /* A status line is text in the hint face (so a message reads like the footer under it), centred on a half row.  The 12x24 cell is a
  * little taller than a half row at the smallest size; its glyphs are not, the margin of the cell is empty. */
+static uint32_t status_color(int kind)
+{
+    return kind > 0 ? UGL_RGBA(110, 225, 150, 255) : kind < 0 ? UGL_RGBA(255, 120, 120, 255) : COL_HINT;
+}
+
 static void status_text(int y, const char *text, int kind)
 {
     ui_metrics *m = &l_m;
-    uint32_t col = kind > 0 ? UGL_RGBA(110, 225, 150, 255) : kind < 0 ? UGL_RGBA(255, 120, 120, 255) : COL_HINT;
     char buf[96];
     fit_text(buf, sizeof(buf), text, m->hint_font, m->hint_scale, m->panel_w - 4 * m->pad);
     ugl_text_f(m->hint_font, m->panel_x + (m->panel_w - ugl_text_width_f(m->hint_font, m->hint_scale, buf)) / 2,
-               y + (m->row_h / 2 - m->hint_h) / 2, m->hint_scale, col, buf);
+               y + (m->row_h / 2 - m->hint_h) / 2, m->hint_scale, status_color(kind), buf);
+}
+
+/* the two line status area of a scrolling panel: the message wraps into the second line when it is too long */
+static void status_text2(int y, const char *text, int kind)
+{
+    ui_metrics *m = &l_m;
+    char l1[160], l2[160];
+    font_ctx f = { m->hint_font, m->hint_scale };
+    int n = uitext_wrap2(text, m->panel_w - 4 * m->pad, measure_cb, &f, l1, l2, sizeof(l1));
+    uint32_t col = status_color(kind);
+    ugl_text_f(m->hint_font, m->panel_x + (m->panel_w - ugl_text_width_f(m->hint_font, m->hint_scale, l1)) / 2, y, m->hint_scale, col, l1);
+    if (n > 1)
+        ugl_text_f(m->hint_font, m->panel_x + (m->panel_w - ugl_text_width_f(m->hint_font, m->hint_scale, l2)) / 2, y + m->hint_h,
+                   m->hint_scale, col, l2);
 }
 
 /* a half-row status line (progress / result messages) */
@@ -605,6 +699,12 @@ void ui_status(const char *text, int kind)
     ui_metrics *m = &l_m;
     int y = m->panel_y + FONT_GLYPH_H * m->item + 2 * m->pad + m->pad + l_yoff;
     l_yoff += m->row_h / 2;
+    l_has_status = 1;
+    if (l_notice_on)
+    {
+        text = l_notice;
+        kind = l_notice_kind;
+    }
     if (text != NULL && text[0] != 0)
         status_text(y, text, kind);
 }
@@ -612,7 +712,7 @@ void ui_status(const char *text, int kind)
 /* ---- scrolling lists, value rows, choices ------------------------------------------------------ */
 
 /* A panel that shows `rows` rows of a longer list (fewer if the screen is too small) and scrolls to keep the
- * focused row in view.  with_status reserves a half row under the list for ui_status_bar(). */
+ * focused row in view.  with_status reserves two lines under the list for ui_status_bar(). */
 static int l_next_width;
 
 void ui_next_panel_width(int chars) { l_next_width = chars; }
@@ -620,14 +720,14 @@ void ui_next_panel_width(int chars) { l_next_width = chars; }
 void ui_panel_begin_scroll(const char *title, int rows, int with_status)
 {
     ui_metrics *m = &l_m;
-    int vis = rows, extra = with_status ? 1 : 0, fr, total = l_rows_total;
+    int vis = rows, fr, total = l_rows_total;
     int width = l_next_width > 0 ? l_next_width : UI_W_LIST;
 
     l_next_width = 0;
-    while (vis > 4 && panel_height_for(m, vis * 2 + extra) > m->h - 2 * m->pad)
+    while (vis > 4 && panel_height_for(m, vis * 2, with_status) > panel_max_h(m))
         vis--;
     l_scroll_on = 1;                     /* the rows leave room for the scroll bar */
-    ui_panel_begin_ex(title, vis * 2 + extra, width);
+    panel_begin(title, vis * 2, with_status, width);
     l_row = 0;
     l_vis = vis;
     if (with_status)
@@ -735,12 +835,21 @@ int ui_x_last(void)
     return l_last_focused && (l_pressed & PADBIT(PAD_X));
 }
 
-/* status line at the bottom of a scrolling panel (needs with_status) */
+/* the status area at the bottom of a scrolling panel (needs with_status): two lines.  A toast made while the menu is open
+ * is shown here instead of the page's text, until it expires. */
 void ui_status_bar(const char *text, int kind)
 {
-    if (l_status_y < 0 || text == NULL || text[0] == 0)
+    if (l_status_y < 0)
         return;
-    status_text(l_status_y, text, kind);
+    l_has_status = 1;
+    if (l_notice_on)
+    {
+        text = l_notice;
+        kind = l_notice_kind;
+    }
+    if (text == NULL || text[0] == 0)
+        return;
+    status_text2(l_status_y, text, kind);
 }
 
 /* non-focusable row with a horizontal bar, permille 0..1000 */
@@ -788,26 +897,47 @@ void ui_label_hi(const char *text)
     ugl_text(m->panel_x + (m->panel_w - ugl_text_width(m->item, buf)) / 2, y + m->pad, m->item, COL_VALUE, buf);
 }
 
-/* one row of texts (in the hint face) side by side, each in a cell as wide as its text asks for (cut with ".." if they do not all fit) */
-void ui_text_cells(const char *const *texts, int n)
+/* One non-focusable row of cells in the hint face, side by side, each as wide as its text asks for (the spare room is shared).
+ * A cell is a label, then a body of which `ghost` (if any) is drawn dimmed under `on`: the body of a cell keeps the width of
+ * `ghost` (else of `on`), so a cell that fills or empties does not move anything. */
+void ui_cells(const ui_cell *c, int n)
 {
     ui_metrics *m = &l_m;
     int y = row_y(), i, total = 0, avail = l_bx1 - l_bx0, x = l_bx0;
-    int want[8];
-    char buf[96];
+    int want[8], lw[8];
+    const int sp = ugl_text_width_f(m->hint_font, m->hint_scale, " ");
+
     if (y < 0 || n < 1 || n > 8)
         return;
     for (i = 0; i < n; i++)
     {
-        want[i] = ugl_text_width_f(m->hint_font, m->hint_scale, texts[i]) + m->pad;
+        const char *body = c[i].ghost != NULL ? c[i].ghost : c[i].on;
+        int has_l = c[i].label != NULL && c[i].label[0], has_b = body != NULL && body[0];
+        lw[i] = has_l ? ugl_text_width_f(m->hint_font, m->hint_scale, c[i].label) + (has_b ? sp : 0) : 0;
+        want[i] = lw[i] + (has_b ? ugl_text_width_f(m->hint_font, m->hint_scale, body) : 0) + m->pad;
         total += want[i];
     }
     for (i = 0; i < n; i++)
     {
         int cw = total > avail ? want[i] * avail / total : want[i] + (avail - total) / n;
-        fit_text(buf, sizeof(buf), texts[i], m->hint_font, m->hint_scale, cw - m->pad / 2);
-        ugl_text_f(m->hint_font, x + (cw - ugl_text_width_f(m->hint_font, m->hint_scale, buf)) / 2, y + (m->row_h - m->hint_h) / 2 - m->pad / 2,
-                   m->hint_scale, COL_VALUE, buf);
+        int tx = x + (cw - (want[i] - m->pad)) / 2, ty = y + (m->row_h - m->hint_h) / 2 - m->pad / 2;
+        if (total > avail)
+        {
+            /* a screen too small for the cells: each one is its label and what is on, cut with ".." to its share (no ghosts) */
+            char t[96], f[96];
+            snprintf(t, sizeof(t), "%s%s%s", c[i].label ? c[i].label : "", c[i].label && c[i].label[0] && c[i].on && c[i].on[0] ? " " : "",
+                     c[i].on ? c[i].on : "");
+            fit_text(f, sizeof(f), t, m->hint_font, m->hint_scale, cw - m->pad / 2);
+            ugl_text_f(m->hint_font, x + (cw - ugl_text_width_f(m->hint_font, m->hint_scale, f)) / 2, ty, m->hint_scale, COL_VALUE, f);
+            x += cw;
+            continue;
+        }
+        if (c[i].label != NULL && c[i].label[0])
+            ugl_text_f(m->hint_font, tx, ty, m->hint_scale, COL_HINT, c[i].label);
+        if (c[i].ghost != NULL && c[i].ghost[0])
+            ugl_text_f(m->hint_font, tx + lw[i], ty, m->hint_scale, COL_GHOST, c[i].ghost);
+        if (c[i].on != NULL && c[i].on[0])
+            ugl_text_f(m->hint_font, tx + lw[i], ty, m->hint_scale, COL_VALUE, c[i].on);
         x += cw;
     }
 }

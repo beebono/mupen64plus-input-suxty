@@ -170,7 +170,7 @@ void menu_open(int current_slot)
 
 const char *menu_scoped_title(char *buf, size_t size, const char *base)
 {
-    snprintf(buf, size, "%s%s", base, g_cfg.scope == CFG_SCOPE_GAME ? " (game)" : "");
+    snprintf(buf, size, "%s%s", base, g_cfg.scope == CFG_SCOPE_GAME ? " (Game)" : "");
     return buf;
 }
 
@@ -431,14 +431,15 @@ static void page_settings(void)
     int game = g_cfg.scope == CFG_SCOPE_GAME;
     int foir = av_foir_available(), vol = audio_volume_now() >= 0;
     int nset = cfg_game_setting_count(), have_game = cfg_game_available();
-    int rows, id = 0, apply_id;
+    int rows, id = 0, dim_id, apply_id;
     char title[32];
-    static const char *const scopes[2] = { "All games", "This game" };
+    static const char *const scopes[2] = { "All Games", "This Game" };
     int sc = game;
 
     if (l_set_msg[0] && ui_focus_get() != l_set_msg_focus)
         set_settings_msg("", 0);                  /* a message belongs to the row it was made on */
-    rows = 1 + foir + 1 + vol + 4 + (game ? 0 : 2) + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
+    /* the same rows, in the same order, in both scopes (the cursor never moves under you when "Apply To" changes) */
+    rows = 1 + foir + 1 + vol + 4 + 2 + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
     ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Settings"), rows, 1);
     if (ui_item("Controls", ">") == 1)
         push(PAGE_CONTROLS);
@@ -472,22 +473,27 @@ static void page_settings(void)
     settings_choice("FF Speed", &l_ff_speed, "%", "hotkeys", "fast_forward_speed", 300);
     settings_row_end("hotkeys", "fast_forward_speed");
     id += 4;
-    if (!game)
+    dim_id = id;
+    if (game)
     {
-        /* the look of the menu itself is not a per-game matter */
+        /* the look of the menu itself is not a per-game matter: the global values, in place, dimmed */
+        ui_slider_locked("Dim", dim, "%");
+        ui_toggle_locked("Notices", toasts);
+    }
+    else
+    {
         if (ui_slider("Dim", &dim, 0, 90, 5, "%"))
             cfg_set_int("menu", "dim_percent", dim);
         if (ui_toggle("Notices", &toasts))
             cfg_set_bool("menu", "show_toasts", toasts);
-        id += 2;
     }
+    id += 2;
     apply_id = id++;
     /* where the changes made in the Controls / FOIR Options / Settings pages are saved */
-    if (ui_choice("Apply to", &sc, scopes, have_game ? 2 : 1))
+    if (ui_choice("Apply To", &sc, scopes, have_game ? 2 : 1))
     {
         cfg_set_scope(sc ? CFG_SCOPE_GAME : CFG_SCOPE_GLOBAL);
         set_settings_msg("", 0);
-        ui_focus_restore(apply_id + (sc ? -2 : 2), ui_scroll_get());       /* Dim and Notices come or go: the row moved */
     }
     if (ui_button_dis("Save Game Profile", !have_game) > 0)
         save_game_profile();
@@ -499,6 +505,8 @@ static void page_settings(void)
 
     if (l_set_msg[0])
         ui_status_bar(l_set_msg, l_set_msg_kind);
+    else if (game && (ui_focus_get() == dim_id || ui_focus_get() == dim_id + 1))
+        ui_status_bar("Global Only", 0);
     else if (ui_focus_get() == apply_id)
         ui_status_bar("Where Controls/FOIR/Settings save", 0);
     else if (ui_focus_get() == apply_id + 1)

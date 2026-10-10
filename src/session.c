@@ -462,7 +462,7 @@ static void announce_slot(int slot)
         toast_show(TOAST_INFO, "Slot %d  %s %s%s", slot, d, c, si.pj64 ? "  PJ64" : "");
     }
     else
-        toast_show(TOAST_INFO, "Slot %d  (empty)", slot);
+        toast_show(TOAST_INFO, "Slot %d  (Empty)", slot);
 }
 
 static void do_quick_save(void)
@@ -537,7 +537,7 @@ static int hotkeys_update(uint32_t held, uint32_t prev, uint32_t now)
             if (fire[HK_FF])
             {
                 ff_set(!l_ff_on);
-                toast_show(TOAST_INFO, l_ff_on ? "Fast-forward on" : "Fast-forward off");
+                toast_show(TOAST_INFO, l_ff_on ? "Fast-Forward On" : "Fast-Forward Off");
             }
         }
         else
@@ -614,6 +614,7 @@ static int run_menu(void)
         return 0;
     }
     entered_ui = 1;
+    toast_set_menu_open(1);                          /* toasts made while the menu is up go to its status line */
     ugl_background_upload();
     menu_set_quit_saves(g_cfg.autosave_on_quit);
     fif_discover();                                  /* foir loaded after we looked? (no-op once found) */
@@ -664,8 +665,6 @@ static int run_menu(void)
             ugl_background_draw(w, h, brightness);
             /* the buttons that confirmed a new menu combo are not also presses on the page underneath */
             result = menu_frame(w, h, consumed ? 0 : tr.pressed, consumed ? 0 : held);
-            if (toast_visible())
-                toast_draw(w, h);                 /* "Game profile saved" and the like, over the menu (at the top: the footer and status line stay readable) */
             if (dt.shot)
                 shot = ugl_readback(w, h);        /* composited back buffer, before it is presented */
             ugl_end();
@@ -686,6 +685,7 @@ static int run_menu(void)
         }
     }
     pad_inject(0);
+    toast_set_menu_open(0);                          /* what menu_closing() has to say floats over the game again */
     menu_closing();                                  /* reverts unconfirmed combo changes, writes pending config */
 
     /* 4. leaving: show one clean (undimmed) frame so the game doesn't resume over a menu.  The buttons that

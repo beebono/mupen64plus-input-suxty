@@ -141,6 +141,7 @@ SOURCE = \
 	$(SRCDIR)/toast.c \
 	$(SRCDIR)/ui.c \
 	$(SRCDIR)/uinav.c \
+	$(SRCDIR)/uitext.c \
 	$(SRCDIR)/video.c
 
 OBJECTS := $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(filter %.c, $(SOURCE)))
@@ -154,7 +155,7 @@ targets:
 	@echo "mupen64plus-input-suxty makefile."
 	@echo "  Targets:"
 	@echo "    all            == Build the plugin, mupen64plus-input-suxty.so"
-	@echo "    check          == build and run the unit tests (N64 mapping model, config layers and migration, foir interface, grid navigation, quit logic, auto-save safety net, inotify watcher)"
+	@echo "    check          == build and run the unit tests (N64 mapping model, config layers and migration, foir interface, grid navigation, menu text formatting, quit logic, auto-save safety net, inotify watcher)"
 	@echo "    clean          == remove object files and build products"
 	@echo "    rebuild        == clean and re-build all"
 	@echo "    install        == Install the plugin into PLUGINDIR"
@@ -176,7 +177,7 @@ all: $(TARGET)
 plugin: all
 
 clean:
-	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave test_uinav test_quitarm fake_foir.so
+	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave test_uinav test_uitext test_quitarm fake_foir.so
 
 rebuild: clean all
 
@@ -201,10 +202,11 @@ $(TARGET): $(OBJECTS)
 
 # unit tests (need only the SDL2 headers): the N64 mapping model (src/padmap.c), the config layers and the migration of
 # an old suxty.cfg (src/cfg.c, src/padmap.c), and foir discovery / option layering against a fake foir (src/foir_if.c)
-check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_quitarm
+check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_uitext test_quitarm
 	./test_padmap
 	./test_cfg
 	./test_uinav
+	./test_uitext
 	./test_quitarm
 	./test_foir_if ./fake_foir.so
 	./test_autosave
@@ -220,6 +222,9 @@ test_foir_if: $(SRCDIR)/../tools/test_foir_if.c $(SRCDIR)/foir_if.c $(SRCDIR)/cf
 
 # the D-pad grid navigation (src/uinav.c) and the double-press quit logic (src/quitarm.c): pure functions
 test_uinav: $(SRCDIR)/../tools/test_uinav.c $(SRCDIR)/uinav.c
+	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
+
+test_uitext: $(SRCDIR)/../tools/test_uitext.c $(SRCDIR)/uitext.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
 
 test_quitarm: $(SRCDIR)/../tools/test_quitarm.c $(SRCDIR)/quitarm.c

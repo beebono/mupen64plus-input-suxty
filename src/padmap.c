@@ -337,7 +337,7 @@ void padmap_default(padmap *m, const pad_layout *L, char *msg, size_t msgsize)
             /* nothing to hold: put what fits on the face buttons and say so */
             n.src[N64_CUP]    = src_of_logical(L, PAD_Y);
             n.src[N64_CRIGHT] = src_of_logical(L, PAD_B);
-            note(msg, msgsize, "No spare button for the C-Face shift: only C-Up and C-Right are mapped");
+            note(msg, msgsize, "No spare button for the C-Face Shift: only C-Up and C-Right are mapped");
         }
     }
     *m = n;

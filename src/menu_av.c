@@ -143,11 +143,11 @@ static void page_foir(int back)
         if (!(fif_option(i)->flags & FOIR_OPTF_LIVE))
         {
             if (!any_next)
-                ui_label(FONT_CH_DOWN " Applies at the next launch " FONT_CH_DOWN);
+                ui_label(FONT_CH_DOWN " Applies at the Next Launch " FONT_CH_DOWN);
             any_next = 1;
             option_row(i);
         }
-    if (ui_button("Save as foir default"))
+    if (ui_button("Save as FOIR Default"))
         menu_push(PAGE_CONFIRM_FOIR_DEFAULT);
     l_nrow++;
     if (ui_button("Back"))
@@ -169,7 +169,7 @@ static void page_foir(int back)
         menu_pop();
 }
 
-/* "Save as foir default" writes the user's global mupen64plus.cfg, so it asks first */
+/* "Save as FOIR Default" writes the user's global mupen64plus.cfg, so it asks first */
 static void page_confirm_default(int back)
 {
     ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);

@@ -22,7 +22,6 @@
 
 #include "uinav.h"
 
-/* the cell of row `row` that covers column `want` (else the nearest one) */
 static int cell_in_row(const ui_navcell *c, int n, int row, int want)
 {
     int i, best = -1, bestd = 1 << 30;
@@ -55,7 +54,6 @@ int uinav_move(const ui_navcell *c, int n, int cur, int dir, int *want_col)
 
     if (dir == UI_NAV_UP || dir == UI_NAV_DOWN)
     {
-        /* the neighbouring row in that direction, wrapping to the other end of the page */
         int row = c[cur].row, next = row, lo = row, hi = row, found = 0;
         for (i = 0; i < n; i++)
         {
@@ -76,7 +74,6 @@ int uinav_move(const ui_navcell *c, int n, int cur, int dir, int *want_col)
     }
     else
     {
-        /* the neighbour in the same row (cells are in call order, so that is the next / previous index of that row) */
         int step = dir == UI_NAV_RIGHT ? 1 : -1, first = -1, last = -1;
         for (i = 0; i < n; i++)
             if (c[i].row == c[cur].row)

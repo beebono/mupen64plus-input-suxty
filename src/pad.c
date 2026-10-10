@@ -37,16 +37,16 @@
 typedef struct {
     SDL_GameController *gc;
     SDL_Joystick       *js;        /* only for pads without a controller mapping */
-    SDL_Joystick       *joy;       /* the underlying joystick (either of the above), the SDL device the game input is read from */
+    SDL_Joystick       *joy;
     SDL_JoystickID      id;
-    int                 devidx;    /* SDL device index at the time it was opened */
-    pad_layout          lay;       /* lay.b[] are the logical-button bindings */
+    int                 devidx;
+    pad_layout          lay;
 } pad_dev;
 
 static pad_dev  l_pads[MAX_PADS];
 static int      l_npads;
 static int      l_numjoy_seen = -1;
-static int      l_generation;          /* bumped whenever the pad list was rebuilt (hot-plug) */
+static int      l_generation;
 static int      l_swap_ab;
 static int      l_deadzone = 50;
 static uint32_t l_inject;
@@ -94,7 +94,6 @@ uint32_t pad_parse_combo(const char *str)
 
 void pad_format_combo(uint32_t mask, char *out, size_t outsize)
 {
-    /* names in the order of pad_button; "start+select" etc. */
     int i;
     size_t n = 0;
     if (outsize == 0)
@@ -136,7 +135,6 @@ static const struct { SDL_GameControllerButton sdl; pad_button logical; } l_gcma
     { SDL_CONTROLLER_BUTTON_GUIDE, PAD_GUIDE },
 };
 
-/* generic layout for pads without a mapping (see poll_js) */
 static const pad_button l_jsmap[8] = { PAD_A, PAD_B, PAD_X, PAD_Y, PAD_L, PAD_R, PAD_SELECT, PAD_START };
 
 static void bind_from_gc(SDL_GameControllerButtonBind b, pad_bind *d)
@@ -162,7 +160,7 @@ static void fill_bindings(pad_dev *p)
     {
         p->joy = SDL_GameControllerGetJoystick(p->gc);
         {
-            /* the joystick's own name (the controller mapping's name is shared by every pad with the same GUID) */
+            /* the joystick's own name (the mapping's name is shared by every pad with the same GUID) */
             const char *nm = SDL_JoystickName(p->joy);
             snprintf(L->name, sizeof(L->name), "%s", nm ? nm : "Gamepad");
         }
@@ -253,15 +251,13 @@ int pad_init(void)
 
     if (l_inited)
         return 0;
-    /* Without this SDL discards joystick input while our window lacks focus (which is the normal state under
-     * a compositor, and the core's own VidExt sets the same hint). */
+    /* otherwise SDL discards joystick input while our window lacks focus (the normal state under a compositor) */
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     if (SDL_InitSubSystem(SDL_INIT_JOYSTICK | SDL_INIT_GAMECONTROLLER) != 0)
     {
         DebugMessage(M64MSG_ERROR, "SDL joystick init failed: %s", SDL_GetError());
         return -1;
     }
-    /* SDL itself honours SDL_GAMECONTROLLERCONFIG / SDL_GAMECONTROLLERCONFIG_FILE; the distro sets those. */
     envdb = SDL_getenv("SDL_GAMECONTROLLERCONFIG_FILE");
     DebugMessage(M64MSG_VERBOSE, "SDL_GAMECONTROLLERCONFIG_FILE=%s", envdb ? envdb : "(unset)");
     l_inited = 1;
@@ -357,8 +353,7 @@ uint32_t pad_swap_ab_mask(uint32_t m)
     return m | (a << PAD_B) | (b << PAD_A);
 }
 
-/* all pads + test input, without calling SDL_JoystickUpdate().  *digital gets the buttons only; if per_pad is
- * not NULL it receives each pad's own digital state (and per_pad[MAX_PADS] the keyboard/injected input). */
+/* per_pad[MAX_PADS] receives the keyboard / injected input */
 static uint32_t read_all(uint32_t *digital, uint32_t *per_pad)
 {
     uint32_t m = 0, d = 0;
@@ -368,7 +363,7 @@ static uint32_t read_all(uint32_t *digital, uint32_t *per_pad)
         memset(per_pad, 0, sizeof(uint32_t) * (MAX_PADS + 1));
     if (l_inited)
     {
-        if (SDL_NumJoysticks() != l_numjoy_seen)     /* hot-plug */
+        if (SDL_NumJoysticks() != l_numjoy_seen)
             rescan();
         for (i = 0; i < l_npads; i++)
         {
@@ -445,7 +440,6 @@ int pad_logical_for(int pad, const padsrc *s)
     return -1;
 }
 
-/* SDL_JoystickUpdate, then advance the hotkey filter and the N64 players (inputfilter_after_update) */
 void pad_refresh(void)
 {
     if (l_inited)
@@ -466,7 +460,6 @@ uint32_t pad_poll(void)
     return m;
 }
 
-/* ---- capture (remap UI) ---- */
 #define CAP_MAXBTN 64
 #define CAP_MAXAX  16
 #define CAP_MAXHAT 4
@@ -516,7 +509,7 @@ int pad_capture_poll(padsrc *out, int *pad_out)
 {
     int i, k, found = 0;
 
-    if (l_cap_injected)                       /* test hook: --debug-script cap:button:3 */
+    if (l_cap_injected)
     {
         l_cap_injected = 0;
         *out = l_cap_inject;
@@ -537,7 +530,7 @@ int pad_capture_poll(padsrc *out, int *pad_out)
         {
             uint64_t bit = (uint64_t) 1 << k;
             if (!SDL_JoystickGetButton(j, k))
-                l_cap.btn_ignore[i] &= ~bit;                /* released: usable again */
+                l_cap.btn_ignore[i] &= ~bit;
             else if (!(l_cap.btn_ignore[i] & bit))
             {
                 *out = (padsrc) { PAD_BIND_BUTTON, 0, (int16_t) k, 0 };
@@ -589,8 +582,7 @@ void pad_format_src_short(const padsrc *s, char *out, size_t size)
     }
 }
 
-/* Generic names for the physical controls, so a mapping reads the same on every pad: face buttons by position
- * (the SDL game controller layout: a = South, b = East, x = West, y = North), L1 / R1 .. L3 / R3, the D-pad directions. */
+/* face buttons by position (SDL layout: a = South, b = East, x = West, y = North) */
 static const char *const l_generic[PAD_NUM] = {
     "DPad Up", "DPad Down", "DPad Left", "DPad Right", "South", "East", "West", "North", "L1", "R1", "Start", "Select",
     "L3", "R3", "Guide", "L2", "R2"
@@ -601,8 +593,6 @@ const char *pad_generic_name(pad_button b)
     return (b >= 0 && b < PAD_NUM) ? l_generic[b] : "?";
 }
 
-/* "South", "DPad Right", "L2", "L-Stick Left"; a control that is none of these (an extra button, an unmapped axis) keeps its
- * raw name ("Btn 12", "Axis4+") */
 void pad_format_src(int pad, const padsrc *s, char *out, size_t size)
 {
     pad_layout lay;
@@ -633,7 +623,6 @@ void pad_format_src(int pad, const padsrc *s, char *out, size_t size)
     pad_format_src_short(s, out, size);
 }
 
-/* ---- edge detection ---- */
 #define REPEAT_DELAY_MS 380
 #define REPEAT_RATE_MS  90
 

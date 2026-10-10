@@ -18,30 +18,21 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* D-pad navigation over a grid of focusable cells: a pure function (no drawing, no state of its own), so the rules can be
- * unit-tested (tools/test_uinav.c).
- *
- * The page's focusable widgets are numbered in call order.  Each has a row, a first column and a span of columns: the cells
- * of a "Save | Load" row have span 1, a full-width row has span = the grid's column count (a plain list is a one-column grid).
- *   Up / Down    next / previous row, wrapping.  In the new row the cell under the remembered column is chosen, so a trip through
- *                a full-width row comes back to the column it left from.
- *   Left / Right the next cell in the same row, wrapping within the row; a row with a single cell does not move (the widget
- *                itself uses Left / Right then: a slider, a choice, the slot of "In Slot").
- */
+/* in the new row the cell under the remembered column is chosen; a row with a single cell does not move on Left /
+ * Right (the widget uses them) */
 
 #ifndef UINAV_H
 #define UINAV_H
 
 typedef struct {
-    int row;        /* rows are numbered in call order; cells of one row share the number */
-    int col;        /* first column */
-    int span;       /* columns covered (>= 1) */
+    int row;
+    int col;
+    int span;
 } ui_navcell;
 
 enum { UI_NAV_UP, UI_NAV_DOWN, UI_NAV_LEFT, UI_NAV_RIGHT };
 
-/* Returns the new focus (== cur when nothing moves).  *want_col is the remembered column: read for Up / Down, updated when
- * the new cell is a single column cell. */
+/* *want_col is the remembered column: read for Up / Down, updated when the new cell is a single column cell */
 int uinav_move(const ui_navcell *cells, int n, int cur, int dir, int *want_col);
 
 #endif /* UINAV_H */

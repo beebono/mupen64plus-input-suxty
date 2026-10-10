@@ -1,15 +1,6 @@
 #!/bin/sh
-# Cross-build the suxty input plugin for aarch64 handhelds (ROCKNIX, spruce, Knulli, muOS ...) on an x86_64 host.
-#
-#   tools/build-aarch64.sh [SDL2_LIBDIR]
-#
-# Needs: aarch64-linux-gnu-gcc, SDL2 headers for the target (Debian/Ubuntu: libsdl2-dev:arm64, or the
-# headers in /usr/aarch64-linux-gnu/include/SDL2), and a copy of the target's libSDL2-2.0.so.0 to link
-# against.  suxty links against SDL2 only; GL/GLES entry points are resolved at run time.  Copy the
-# library from the device if you have no arm64 sysroot, e.g.
-#   scp device:/usr/lib/libSDL2-2.0.so.0 $SDL2_LIBDIR/
-# Output: projects/unix/mupen64plus-input-suxty-aarch64.so  (install it as mupen64plus-input-suxty.so next to the other plugins)
-# Note: the stock Ubuntu cross compiler emits glibc 2.38 symbols; for devices with an older glibc use toolchains/rg35xxsp/build.sh suxty.
+# usage: tools/build-aarch64.sh [SDL2_LIBDIR]  (a copy of the target's libSDL2-2.0.so.0 to link against, e.g. from the device)
+# The stock Ubuntu cross compiler emits glibc 2.38 symbols; for devices with an older glibc use toolchains/rg35xxsp/build.sh suxty.
 set -e
 here=$(cd "$(dirname "$0")/.." && pwd)
 libdir=${1:-${SDL2_LIBDIR:-/usr/lib/aarch64-linux-gnu}}

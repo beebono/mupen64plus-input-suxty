@@ -19,10 +19,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* This header file is for OS-specific #includes and #defines
- *
- */
-
 #if !defined(OSAL_PREPROC_H)
 #define OSAL_PREPROC_H
 
@@ -39,7 +35,7 @@
 
 #elif defined(__APPLE__)
 
-  #include <limits.h>  // for PATH_MAX
+  #include <limits.h>
 
   #define OSAL_DEFAULT_DYNLIB_FILENAME "libmupen64plus.dylib"
   #define OSAL_DIR_SEPARATOR           '/'
@@ -55,7 +51,7 @@
     #define printf(...) __android_log_print(ANDROID_LOG_VERBOSE, "Input-Suxty", __VA_ARGS__)
   #endif
 
-  #include <limits.h>  // for PATH_MAX
+  #include <limits.h>
 
   #define OSAL_DEFAULT_DYNLIB_FILENAME "libmupen64plus.so.2"
   #define OSAL_DIR_SEPARATOR           '/'
@@ -63,7 +59,7 @@
   #define OSAL_DLL_EXTENSION           ".so"
   #define osal_insensitive_strcmp(x, y) strcasecmp(x, y)
 
-  /* PATH_MAX only may be defined by limits.h */
+  /* PATH_MAX may only be defined by limits.h */
   #ifndef PATH_MAX
     #define PATH_MAX 4096
   #endif

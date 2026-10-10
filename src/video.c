@@ -37,7 +37,7 @@ static SDL_GLContext  l_game_ctx;
 static SDL_GLContext  l_ui_ctx;
 static int            l_ui_ok;
 static int            l_swap_control = 0;     /* like the core's own VidExt: no vsync unless the plugin asks */
-static int            l_profile_set;          /* has the plugin chosen a context profile itself? */
+static int            l_profile_set;
 static int            l_fullscreen;
 static char          *l_title;
 
@@ -48,8 +48,6 @@ static int get_current_display(void)
         v = SDL_getenv("SDL_VIDEO_FULLSCREEN_HEAD");
     return v ? SDL_atoi(v) : 0;
 }
-
-/* ---- VidExt function table ---------------------------------------------------------------- */
 
 static m64p_error vx_init_with_mode(m64p_render_mode mode)
 {
@@ -144,7 +142,7 @@ static m64p_error vx_list_rates(m64p_2d_size size, int *count, int *rates)
     return M64ERR_UNSUPPORTED;
 }
 
-/* Build the private overlay context.  Runs with the game context current; leaves it current. */
+/* runs with the game context current; leaves it current */
 static void setup_overlay_context(void)
 {
     l_ui_ok = 0;
@@ -154,7 +152,7 @@ static void setup_overlay_context(void)
         return;
     }
     SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 0);
-    l_ui_ctx = SDL_GL_CreateContext(l_win);        /* becomes current */
+    l_ui_ctx = SDL_GL_CreateContext(l_win);
     if (l_ui_ctx == NULL)
     {
         DebugMessage(M64MSG_ERROR, "suxty: couldn't create the overlay GL context (%s); the menu is disabled", SDL_GetError());
@@ -171,7 +169,6 @@ static void setup_overlay_context(void)
     if (SDL_GL_MakeCurrent(l_win, l_game_ctx) != 0)
         DebugMessage(M64MSG_ERROR, "SDL_GL_MakeCurrent(game) failed: %s", SDL_GetError());
 }
-
 
 static void set_platform_default_context(const char *force)
 {
@@ -246,10 +243,11 @@ static m64p_error vx_set_mode(int width, int height, int bpp, int screen_mode, i
 
     if (l_win == NULL)
     {
-        /* Context selection.  The stock core on a GLES build (USE_GLES) overrides whatever the plugin asked for
-         * with ES 2.0, which is what makes e.g. GLideN64 (which asks for a *core 3.3* context) work on Mali.  We
-         * try the plugin's own request first (so a plugin that really wants ES 3.x gets it) and fall back to the
-         * platform default if that fails.  SUXTY_GL=es|compat|plugin forces a choice. */
+        /* the stock core on a GLES build (USE_GLES) overrides the plugin's request with ES 2.0 (which is what makes
+         * GLideN64, asking for
+         * a *core 3.3* context, work on Mali). We try the plugin's own request first and fall back to the platform
+         * default.
+         * SUXTY_GL=es|compat|plugin forces a choice. */
         const char *force = SDL_getenv("SUXTY_GL");
         int attempt;
         int try_plugin_first = l_profile_set && (force == NULL || strcmp(force, "plugin") == 0);
@@ -283,7 +281,6 @@ static m64p_error vx_set_mode(int width, int height, int bpp, int screen_mode, i
     }
     else
     {
-        /* the plugin changing mode/size after creation */
         if (((SDL_GetWindowFlags(l_win) & SDL_WINDOW_FULLSCREEN) != 0) != (screen_mode == M64VIDEO_FULLSCREEN))
             SDL_SetWindowFullscreen(l_win, screen_mode == M64VIDEO_FULLSCREEN ? SDL_WINDOW_FULLSCREEN : 0);
     }
@@ -440,12 +437,12 @@ static m64p_error vx_swap(void)
 {
     if (l_win == NULL)
         return M64ERR_NOT_INIT;
-    /* a menu is open on the emulation thread; a swap from any other thread (threaded video plugin,
-     * core pause loop) must not touch the window or the contexts */
+    /* a menu is open on the emulation thread; a swap from any other thread (threaded video plugin, core pause loop)
+     * must not touch the window or the contexts */
     if (session_menu_blocks_this_thread())
         return M64ERR_SUCCESS;
     if (l_ui_ok && session_before_swap())
-        return M64ERR_SUCCESS;           /* the session presented the frame itself */
+        return M64ERR_SUCCESS;
     SDL_GL_SwapWindow(l_win);
     return M64ERR_SUCCESS;
 }
@@ -492,8 +489,7 @@ m64p_error video_install(void)
     return CoreOverrideVidExt(&table);
 }
 
-/* PluginShutdown: stop the core calling into this library (our table's pointers die with the dlclose), and tear the
- * window down if the video plugin never called VidExt_Quit() */
+/* our table's pointers die with the dlclose; tear the window down if the video plugin never called VidExt_Quit() */
 void video_uninstall(void)
 {
     static m64p_video_extension_functions none;     /* any NULL entry deactivates the override */
@@ -506,8 +502,6 @@ void video_uninstall(void)
         vx_quit();
     }
 }
-
-/* ---- helpers for session.c ------------------------------------------------------------------ */
 
 int video_ui_available(void)
 {
@@ -547,8 +541,8 @@ void video_present(void)
         SDL_GL_SwapWindow(l_win);
 }
 
-/* Fast-forward: a vsynced swap would cap the game at the display refresh rate no matter what speed the core
- * is told to run at.  Must be called on the thread that has the game context current. */
+/* a vsynced swap would cap the game at the display refresh rate whatever speed the core runs at; call on the thread
+ * that has the game context current */
 void video_set_unthrottled(int unthrottled)
 {
     int want = unthrottled ? 0 : l_swap_control;

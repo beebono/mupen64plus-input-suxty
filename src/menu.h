@@ -19,12 +19,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-/* The pause menu: a stack of pages built from ui.h widgets.
- *
- * menu_frame() draws one frame and returns what the user chose.  It never
- * talks to the core itself; session.c turns the result into core commands.
- * That keeps the menu free of threading concerns.
- */
+/* never talks to the core: session.c turns the result into core commands */
 
 #ifndef MENU_H
 #define MENU_H
@@ -32,25 +27,24 @@
 #include <stdint.h>
 
 typedef enum {
-    MENU_NONE = 0,     /* stay in the menu */
-    MENU_RESUME,       /* close the menu, continue the game */
-    MENU_RESET,        /* hard-reset (power cycle) the emulated console, then continue */
-    MENU_RESET_SOFT,   /* soft-reset: like pressing the console's reset button, RDRAM is kept */
-    MENU_QUIT,         /* stop emulation (saving the auto slot first if that is on) */
-    MENU_SAVE_STATE,   /* save to menu_action_slot() and close the menu */
-    MENU_LOAD_STATE    /* load menu_action_slot() and close the menu */
+    MENU_NONE = 0,
+    MENU_RESUME,
+    MENU_RESET,
+    MENU_RESET_SOFT,   /* soft reset: RDRAM is kept */
+    MENU_QUIT,
+    MENU_SAVE_STATE,
+    MENU_LOAD_STATE
 } menu_result;
 
 void        menu_set_game_name(const char *name);
-void        menu_set_quit_saves(int saves);        /* the quit confirmation mentions the auto-save */
-void        menu_open(int current_slot);           /* back to the top page */
-int         menu_action_slot(void);                /* for MENU_SAVE_STATE / MENU_LOAD_STATE */
-int         menu_selected_slot(void);              /* the carousel's slot (0-9), -1 if the auto slot is selected */
-/* `pressed`: new presses this frame (with auto-repeat on the D-pad); `held`: everything held now */
+void        menu_set_quit_saves(int saves);
+void        menu_open(int current_slot);
+int         menu_action_slot(void);
+int         menu_selected_slot(void);              /* -1 if the auto slot is selected */
+/* pressed: new presses (D-pad auto-repeats); held: everything held now */
 menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held);
-/* The menu combo was pressed while the menu is open.  1 = the menu used it (it confirmed a new combo), 0 = close. */
+/* 1 = the menu used it (confirmed a new combo), 0 = close */
 int         menu_combo_pressed(uint32_t held);
-/* The menu is closing: unconfirmed changes are reverted, pending config is written. */
 void        menu_closing(void);
 
 #endif /* MENU_H */

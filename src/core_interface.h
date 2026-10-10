@@ -26,7 +26,6 @@
 #include "m64p_frontend.h"
 #include "m64p_types.h"
 
-/* PluginStartup(): resolve the core functions from the handle the front-end gave us */
 extern m64p_error AttachCoreHandle(m64p_dynlib_handle handle);
 extern void       DetachCoreLib(void);
 

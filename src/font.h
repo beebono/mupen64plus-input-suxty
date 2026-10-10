@@ -18,11 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-
-/* Embedded 8x16 and 12x24 bitmap font atlases (see tools/gen_font.py).  The 12x24 face is 1.5x the 8x16 one, crisply
- * rasterised rather than scaled: it is used for hint / footer text, which at the smallest screen size would otherwise
- * need a fractional scale of the 8x16 bitmap. */
-
 #ifndef FONT_H
 #define FONT_H
 
@@ -33,7 +28,7 @@
 #define FONT_ATLAS_H   128
 #define FONT_FIRST_CHAR 32
 #define FONT_LAST_CHAR  126
-/* four arrow glyphs live in the cells after '~'; text reaches them as these control characters */
+/* arrow glyphs sit after '~'; text reaches them as these control characters */
 #define FONT_CH_DOWN    "\x01"
 #define FONT_CH_UP      "\x02"
 #define FONT_CH_LEFT    "\x03"
@@ -42,12 +37,11 @@
 #define FONT_CELL_UP    96
 #define FONT_CELL_LEFT  97
 #define FONT_CELL_RIGHT 98
-/* the last cell of the atlas is solid white; used for filled rectangles */
+/* solid white, for filled rectangles */
 #define FONT_SOLID_CELL 127
 
 extern const unsigned char font_atlas_alpha[FONT_ATLAS_W * FONT_ATLAS_H];
 
-/* the 12x24 atlas: same layout (16 x 8 cells), cells 12 x 24 */
 #define FONT2_GLYPH_W   12
 #define FONT2_GLYPH_H   24
 #define FONT2_ATLAS_W   192

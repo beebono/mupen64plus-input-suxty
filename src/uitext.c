@@ -59,7 +59,6 @@ int uitext_wrap2(const char *src, int avail, uitext_measure m, void *ctx, char *
         uitext_fit(line2, size, tmp, avail, m, ctx);
         return line2[0] ? 2 : 1;
     }
-    /* the longest prefix that fits, then back to the last space in it */
     brk = 0;
     for (i = 1; i <= len; i++)
     {
@@ -79,7 +78,7 @@ int uitext_wrap2(const char *src, int avail, uitext_measure m, void *ctx, char *
         while (sp > 0 && tmp[sp] != ' ')
             sp--;
         if (sp > 0)
-            brk = sp;                       /* break at the space (the text fits up to it) */
+            brk = sp;
     }
     if (brk == 0)
         brk = 1;

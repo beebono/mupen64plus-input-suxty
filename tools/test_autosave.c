@@ -1,16 +1,5 @@
-/* Unit tests for the auto-save safety net (src/autosave.c) and the save-completion watcher (src/filewatch.c):
- *
- *   - autosave_validate(): good files (several deflate block types, the three state versions), truncated, wrong magic,
- *     wrong version, wrong size, corrupted, not gzip, empty, missing;
- *   - backup rotation (".prev", ".prev2", ".prev3", the oldest dropped), un-rotation, removal, and the game-start check
- *     (good -> backups deleted, bad -> newest valid backup restored, other games' files untouched);
- *   - filewatch: inotify against a fake writer in a child process (not reported while the file is open, reported at
- *     close, other names ignored, rename into place, a directory at the path never reported) and the polling fallback.
- *
- * zlib is used here only to produce test files (the plugin itself does not link it).
- *
- *   make -C projects/unix check          GPLv2+, like the rest of the project.
- */
+/* Unit tests for src/autosave.c and src/filewatch.c; run with make -C projects/unix check.
+ * zlib only produces the test files (the plugin does not link it). GPLv2+, like the rest of the project. */
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -38,11 +27,9 @@ static char l_dir[256];
 static uint32_t l_rng = 12345;
 static uint32_t rnd(void) { l_rng = l_rng * 1664525u + 1013904223u; return l_rng >> 8; }
 
-/* ---- fixtures --------------------------------------------------------------------------------------------------- */
-
 enum { FILL_ZERO_PATTERN, FILL_RANDOM, FILL_TEXT };
 
-/* a state-shaped payload: "M64+SAVE", the version, 32 hex digits of "MD5", then `size - 44` bytes of `fill` */
+/* "M64+SAVE", the version, 32 hex digits of "MD5", then `size - 44` bytes of `fill` */
 static unsigned char *make_payload(uint32_t version, size_t size, int fill)
 {
     unsigned char *p = malloc(size);
@@ -63,7 +50,7 @@ static unsigned char *make_payload(uint32_t version, size_t size, int fill)
     return p;
 }
 
-/* gzip file; strategy Z_FIXED forces fixed-Huffman blocks, level 0 stored blocks */
+/* Z_FIXED forces fixed-Huffman blocks, level 0 stored blocks */
 static void write_gz(const char *path, const unsigned char *data, size_t size, int level, int strategy)
 {
     z_stream z;
@@ -144,10 +131,8 @@ static int valid(const char *path, char *why)
     return autosave_validate(path, why, 64);
 }
 
-/* ---- validation ------------------------------------------------------------------------------------------------- */
-
-static unsigned char *l_good;          /* the version 1.9 payload, zero + pattern */
-static char l_goodgz[600];             /* ... and its gzip file */
+static unsigned char *l_good;
+static char l_goodgz[600];
 
 static void validate_tests(void)
 {
@@ -163,22 +148,20 @@ static void validate_tests(void)
     write_gz(l_goodgz, l_good, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);
     CHECK(valid(l_goodgz, why) == 0);
 
-    /* every kind of deflate block */
     P(p, "t.gz");
     write_gz(p, l_good, AUTOSAVE_SIZE_V12, 1, Z_DEFAULT_STRATEGY);  CHECK(valid(p, why) == 0);
     write_gz(p, l_good, AUTOSAVE_SIZE_V12, 9, Z_DEFAULT_STRATEGY);  CHECK(valid(p, why) == 0);
     write_gz(p, l_good, AUTOSAVE_SIZE_V12, 6, Z_FIXED);             CHECK(valid(p, why) == 0);
-    write_gz(p, l_good, AUTOSAVE_SIZE_V12, 0, Z_DEFAULT_STRATEGY);  CHECK(valid(p, why) == 0);          /* stored */
+    write_gz(p, l_good, AUTOSAVE_SIZE_V12, 0, Z_DEFAULT_STRATEGY);  CHECK(valid(p, why) == 0);
     write_gz(p, l_good, AUTOSAVE_SIZE_V12, 6, Z_HUFFMAN_ONLY);      CHECK(valid(p, why) == 0);
     write_gz(p, l_good, AUTOSAVE_SIZE_V12, 6, Z_RLE);               CHECK(valid(p, why) == 0);
     d = make_payload(0x00010900, AUTOSAVE_SIZE_V12, FILL_RANDOM);
-    write_gz(p, d, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) == 0);          /* incompressible */
+    write_gz(p, d, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) == 0);
     free(d);
     d = make_payload(0x00010900, AUTOSAVE_SIZE_V12, FILL_TEXT);
-    write_gz(p, d, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) == 0);          /* literals + short matches */
+    write_gz(p, d, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) == 0);
     free(d);
 
-    /* the versions the core can read, each with its own size */
     d = make_payload(0x00010100, AUTOSAVE_SIZE_V11, FILL_ZERO_PATTERN);
     write_gz(p, d, AUTOSAVE_SIZE_V11, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) == 0);
     write_gz(p, d, AUTOSAVE_SIZE_V11 - 4, 6, Z_DEFAULT_STRATEGY);   CHECK(valid(p, why) != 0 && STREQ(why, "wrong size"));
@@ -191,7 +174,6 @@ static void validate_tests(void)
     write_gz(p, d, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) != 0 && STREQ(why, "wrong size"));
     free(d);
 
-    /* wrong magic, wrong version family */
     d = malloc(AUTOSAVE_SIZE_V12);
     memcpy(d, l_good, AUTOSAVE_SIZE_V12);
     d[0] = 'X';
@@ -201,14 +183,12 @@ static void validate_tests(void)
     write_gz(p, d, AUTOSAVE_SIZE_V12, 6, Z_DEFAULT_STRATEGY);       CHECK(valid(p, why) != 0 && strncmp(why, "unsupported version", 19) == 0);
     free(d);
 
-    /* wrong sizes */
     write_gz(p, l_good, AUTOSAVE_SIZE_V12 - 1, 6, Z_DEFAULT_STRATEGY);  CHECK(valid(p, why) != 0 && STREQ(why, "wrong size"));
     d = make_payload(0x00010900, AUTOSAVE_SIZE_V12 + 100, FILL_ZERO_PATTERN);
     write_gz(p, d, AUTOSAVE_SIZE_V12 + 100, 6, Z_DEFAULT_STRATEGY);     CHECK(valid(p, why) != 0 && STREQ(why, "too long"));
     free(d);
     write_gz(p, l_good, 30, 6, Z_DEFAULT_STRATEGY);                     CHECK(valid(p, why) != 0 && STREQ(why, "too short"));
 
-    /* truncated: half the file, the last byte, the trailer, just the gzip header */
     {
         long long sz = fsize(l_goodgz);
         unsigned char *raw = malloc((size_t) sz);
@@ -219,7 +199,6 @@ static void validate_tests(void)
         write_raw(p, raw, (size_t) sz - 1);        CHECK(valid(p, why) != 0 && STREQ(why, "truncated"));
         write_raw(p, raw, (size_t) sz - 8);        CHECK(valid(p, why) != 0 && STREQ(why, "truncated"));
         write_raw(p, raw, 10);                     CHECK(valid(p, why) != 0 && STREQ(why, "truncated"));
-        /* damaged: a flipped bit in the middle (a bad code or a bad crc), in the stored crc */
         raw[sz / 2] ^= 0x10;
         write_raw(p, raw, (size_t) sz);            CHECK(valid(p, why) != 0);
         raw[sz / 2] ^= 0x10;
@@ -229,18 +208,15 @@ static void validate_tests(void)
         raw[sz - 2] ^= 0x01;
         write_raw(p, raw, (size_t) sz);            CHECK(valid(p, why) != 0 && STREQ(why, "bad length"));
         raw[sz - 2] ^= 0x01;
-        write_raw(p, raw, (size_t) sz);            CHECK(valid(p, why) == 0);                           /* the fixture itself is intact */
+        write_raw(p, raw, (size_t) sz);            CHECK(valid(p, why) == 0);
         free(raw);
     }
 
-    /* not gzip, empty, missing, a directory */
     write_raw(p, "hello, this is not a state", 26);   CHECK(valid(p, why) != 0 && STREQ(why, "not gzip"));
     write_raw(p, "", 0);                              CHECK(valid(p, why) != 0 && STREQ(why, "truncated"));
     P(p, "nonexistent");                              CHECK(valid(p, why) != 0);
     CHECK(valid(l_dir, why) != 0);
 }
-
-/* ---- backups ---------------------------------------------------------------------------------------------------- */
 
 static void content(const char *path, char *out, size_t n)
 {
@@ -280,37 +256,33 @@ static void rotation_tests(void)
     autosave_backup_path(a, 2, b3, sizeof(b3));
     CHECK(STREQ(b1 + strlen(a), ".prev") && STREQ(b2 + strlen(a), ".prev2") && STREQ(b3 + strlen(a), ".prev3"));
 
-    CHECK(autosave_rotate(a) == 0);                           /* nothing there */
+    CHECK(autosave_rotate(a) == 0);
     write_raw(a, "one", 3);
     CHECK(autosave_rotate(a) == 1);
     CHECK(!exists(a) && has(b1, "one"));
     write_raw(a, "two", 3);
-    CHECK(autosave_rotate(a) == 1);                           /* .prev is taken: .prev2 */
+    CHECK(autosave_rotate(a) == 1);
     CHECK(has(b1, "one") && has(b2, "two") && !exists(a));
     write_raw(a, "three", 5);
     CHECK(autosave_rotate(a) == 1);
     CHECK(has(b1, "one") && has(b2, "two") && has(b3, "three"));
-    /* all taken: the oldest (by time) is dropped */
     set_age(b1, 300); set_age(b2, 100); set_age(b3, 200);
     write_raw(a, "four", 4);
     CHECK(autosave_rotate(a) == 1);
-    CHECK(!exists(a) && has(b1, "four") && has(b2, "two") && has(b3, "three"));     /* "one" (.prev) made room for "four" */
+    CHECK(!exists(a) && has(b1, "four") && has(b2, "two") && has(b3, "three"));
 
-    /* un-rotate: the newest backup comes back, only when the file is absent */
     set_age(b1, 400); set_age(b2, 50); set_age(b3, 150);
     CHECK(autosave_unrotate(a) == 1);
     CHECK(has(a, "two") && !exists(b2) && exists(b1) && exists(b3));
-    CHECK(autosave_unrotate(a) == 0);                         /* it exists now: left alone */
+    CHECK(autosave_unrotate(a) == 0);
     CHECK(has(a, "two"));
 
-    /* remove_all: the file and its backups, nothing else */
     P(b4, "auto.st.bak"); write_raw(b4, "keep", 4);
     CHECK(autosave_remove_all(a) == 0);
     CHECK(!exists(a) && !exists(b1) && !exists(b2) && !exists(b3));
     CHECK(exists(b4));
-    CHECK(autosave_remove_all(a) == 0);                       /* already gone */
+    CHECK(autosave_remove_all(a) == 0);
 
-    /* a directory at the path is not rotated or removed as a file */
     clean_dir();
     CHECK(mkdir(a, 0755) == 0);
     CHECK(autosave_rotate(a) == 0 && exists(a));
@@ -338,11 +310,9 @@ static void reconcile_tests(void)
     write_gz(gz2, d, AUTOSAVE_SIZE_V12, 1, Z_DEFAULT_STRATEGY);
     free(d);
 
-    /* nothing at all */
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_ABSENT);
 
-    /* a good file: its backups are deleted, other games' files and unrelated names are not */
     copy_file(l_goodgz, a);
     write_raw(b1, "junk", 4); write_raw(b2, "junk", 4);
     copy_file(l_goodgz, o); copy_file(l_goodgz, ob); write_raw(other, "slot", 4);
@@ -352,11 +322,9 @@ static void reconcile_tests(void)
     CHECK(exists(o) && exists(ob) && exists(other));
     CHECK(valid(a, why) == 0);
 
-    /* a good file and no backups */
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_GOOD && r.removed == 0);
 
-    /* a damaged file (cut in half) and a valid backup: restored, the damaged file is gone, the backup moved */
     {
         long long sz = fsize(l_goodgz);
         unsigned char *raw = malloc((size_t) sz);
@@ -372,29 +340,25 @@ static void reconcile_tests(void)
     CHECK(valid(a, why) == 0 && fsize(a) == fsize(l_goodgz) && !exists(b1));
     CHECK(exists(o) && exists(ob));
 
-    /* missing file, a backup: restored (was_missing) */
     unlink(a);
     copy_file(l_goodgz, b2);
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_RESTORED && r.was_missing && valid(a, why) == 0 && !exists(b2));
 
-    /* wrong magic counts as damaged too */
     write_raw(a, "M64+SAVE not really", 19);
     copy_file(l_goodgz, b1);
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_RESTORED && valid(a, why) == 0);
 
-    /* several backups: the newest valid one wins, an invalid newer one is skipped, all of them go */
     unlink(a);
-    write_raw(b1, "garbage", 7);                        /* newest, but invalid */
-    copy_file(gz2, b2);                                 /* the one to restore */
-    copy_file(l_goodgz, b3);                            /* older */
+    write_raw(b1, "garbage", 7);
+    copy_file(gz2, b2);
+    copy_file(l_goodgz, b3);
     set_age(b1, 10); set_age(b2, 100); set_age(b3, 500);
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_RESTORED && r.was_missing && STREQ(r.from, b2));
     CHECK(fsize(a) == fsize(gz2) && !exists(b1) && !exists(b2) && !exists(b3));
 
-    /* damaged and no valid backup: nothing is changed or deleted */
     write_raw(a, "damaged", 7);
     write_raw(b1, "junk", 4);
     autosave_reconcile(a, &r);
@@ -405,7 +369,6 @@ static void reconcile_tests(void)
     CHECK(r.status == AUTOSAVE_BAD && r.was_missing && has(b1, "junk"));
     unlink(b1);
 
-    /* a directory at the path is left alone */
     CHECK(mkdir(a, 0755) == 0);
     copy_file(l_goodgz, b1);
     autosave_reconcile(a, &r);
@@ -413,18 +376,16 @@ static void reconcile_tests(void)
     rmdir(a);
     clean_dir();
 
-    /* the whole cycle: quit twice, start (good) -> backup gone; quit, the write is cut short, start -> the old one is back */
     copy_file(l_goodgz, a);
-    CHECK(autosave_rotate(a) == 1);                     /* quit #2 */
-    copy_file(gz2, a);                                  /* ... and its write completed */
+    CHECK(autosave_rotate(a) == 1);
+    copy_file(gz2, a);
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_GOOD && r.removed == 1 && fsize(a) == fsize(gz2) && !exists(b1));
-    CHECK(autosave_rotate(a) == 1);                     /* quit #3 */
+    CHECK(autosave_rotate(a) == 1);
     write_raw(a, "cut off by a power loss", 23);
     autosave_reconcile(a, &r);
     CHECK(r.status == AUTOSAVE_RESTORED && fsize(a) == fsize(gz2) && valid(a, why) == 0);
 
-    /* the launcher's --savestate */
     {
         char out[64];
         static const char cl1[] = "mupen64plus\0--gfx\0x.so\0--savestate\0/a b/c.auto.st\0rom.z64";
@@ -438,11 +399,8 @@ static void reconcile_tests(void)
     }
 }
 
-/* ---- the watcher ------------------------------------------------------------------------------------------------ */
-
 static void msleep(int ms) { usleep((useconds_t) ms * 1000); }
 
-/* polls for up to `ms`; returns 1 as soon as the watcher reports */
 static int wait_hit(filewatch *w, int ms)
 {
     int t;
@@ -455,7 +413,7 @@ static int wait_hit(filewatch *w, int ms)
     return 0;
 }
 
-/* the fake core worker: truncate-open, write, linger, write, close (like gzopen "wb" ... gzclose) */
+/* truncate-open, write, linger, write, close (like gzopen "wb" ... gzclose) */
 static pid_t writer(const char *path, int linger_ms, int do_write)
 {
     pid_t pid = fork();
@@ -484,21 +442,18 @@ static void watch_tests(void)
     P(a, "auto.st");
     P(o, "other.st");
 
-    /* inotify: nothing happens -> nothing reported */
     CHECK(filewatch_start(&w, a, 0) == 0);
     CHECK(filewatch_uses_inotify(&w));
     CHECK(!wait_hit(&w, 100));
 
-    /* the writer holds the file open for 400 ms: not reported until it closes */
     pid = writer(a, 400, 1);
     CHECK(!wait_hit(&w, 250));
     CHECK(wait_hit(&w, 1000));
     waitpid(pid, &st, 0);
     CHECK(fsize(a) == 8);
-    CHECK(!wait_hit(&w, 100));                                /* reported once */
+    CHECK(!wait_hit(&w, 100));
 
-    /* the file existed before, and is rewritten with the same size and (to the second) the same time: still seen
-     * (the polling fallback can't) */
+    /* rewritten with the same size and (to the second) the same time: still seen (the polling fallback can't) */
     filewatch_stop(&w);
     write_raw(a, "abcdefgh", 8);
     CHECK(filewatch_start(&w, a, 0) == 0);
@@ -506,27 +461,24 @@ static void watch_tests(void)
     CHECK(wait_hit(&w, 1000));
     waitpid(pid, &st, 0);
 
-    /* another name in the same directory: ignored */
     CHECK(!wait_hit(&w, 20));
     pid = writer(o, 20, 1);
     CHECK(!wait_hit(&w, 300));
     waitpid(pid, &st, 0);
 
-    /* renamed into place (IN_MOVED_TO) */
     P(t, "x.tmp");
     write_raw(t, "moved", 5);
     CHECK(!wait_hit(&w, 50));
     CHECK(rename(t, a) == 0);
     CHECK(wait_hit(&w, 500));
 
-    /* a writer that opens and closes without writing: reported (the caller sees the empty file) */
     pid = writer(a, 10, 0);
     CHECK(wait_hit(&w, 500));
     waitpid(pid, &st, 0);
     CHECK(fsize(a) == 0);
     filewatch_stop(&w);
 
-    /* a directory at the path (the forced-failure case): the writer's open fails, nothing is ever reported */
+    /* the forced-failure case: the writer's open fails, nothing is ever reported */
     unlink(a);
     CHECK(mkdir(a, 0755) == 0);
     CHECK(filewatch_start(&w, a, 0) == 0);
@@ -537,13 +489,11 @@ static void watch_tests(void)
     filewatch_stop(&w);
     rmdir(a);
 
-    /* a directory that does not exist: no watch possible, polling is used (and never reports) */
     snprintf(t, sizeof(t), "%s/nodir/auto.st", l_dir);
     CHECK(filewatch_start(&w, t, 0) == 0 && !filewatch_uses_inotify(&w));
     CHECK(!wait_hit(&w, 50));
     filewatch_stop(&w);
 
-    /* ---- the polling fallback: changed AND settled for FILEWATCH_SETTLE_MS */
     P(a, "auto.st");
     unlink(a);
     CHECK(filewatch_start(&w, a, 1) == 0 && !filewatch_uses_inotify(&w));
@@ -559,7 +509,6 @@ static void watch_tests(void)
     waitpid(pid, &st, 0);
     CHECK(fsize(a) == 8);
     filewatch_stop(&w);
-    /* unchanged file: not reported */
     CHECK(filewatch_start(&w, a, 1) == 0);
     CHECK(!wait_hit(&w, 500));
     filewatch_stop(&w);

@@ -1,13 +1,6 @@
-/* padinfo: print what SDL reports for every joystick, then (optionally) log raw input changes for N seconds,
- * so button numbers can be read off a real pad.  Used to bring suxty up on a new handheld CFW.
- *
- *   padinfo [seconds]          seconds = 0 (default): only the identification; otherwise also log changes
- *
- * Identification: index, name, GUID, button/axis/hat counts, SDL_IsGameController, and the mapping string
- * (SDL_GameControllerMapping) when there is one.  SDL_GAMECONTROLLERCONFIG(_FILE) is honoured by SDL itself.
- * Cross-build: see toolchains/rg35xxsp/build.sh (suxty) for the flags; links SDL2 only.
- * GPLv2+, like the rest of the project.
- */
+/* padinfo [seconds]: print what SDL reports for every joystick, then (seconds > 0) log raw input changes, to read
+ * button numbers
+ * off a real pad. GPLv2+, like the rest of the project. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

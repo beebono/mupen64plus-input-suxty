@@ -18,12 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The FOIR Options page of the pause menu: foir's options, listed from foir's own interface table (foir_if.h); hidden when
- * foir is not the video plugin.  (The volume lives in Settings and the game profile is saved from there.)
- *
- * The edit scope (g_cfg.scope) says whether a change is stored for all games (suxty.cfg) or for this game only.
- * Drawn by menu.c's page stack; see menu_int.h. */
-
 #include <stdio.h>
 #include <string.h>
 
@@ -48,11 +42,9 @@ static int scope_game(void) { return g_cfg.scope == CFG_SCOPE_GAME; }
 
 int av_foir_available(void) { return fif_get() != NULL; }
 
-static int         l_nrow;                     /* focusable rows drawn so far on this page */
-static const char *l_focus_help;               /* the option under the cursor */
+static int         l_nrow;
+static const char *l_focus_help;
 static char        l_focus_note[96];
-
-/* ---- FOIR Options ------------------------------------------------------------------------------------------- */
 
 static void option_row(unsigned i)
 {
@@ -169,7 +161,6 @@ static void page_foir(int back)
         menu_pop();
 }
 
-/* "Save as FOIR Default" writes the user's global mupen64plus.cfg, so it asks first */
 static void page_confirm_default(int back)
 {
     ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
@@ -188,8 +179,6 @@ static void page_confirm_default(int back)
     if (back)
         menu_pop();
 }
-
-/* ---- dispatch --------------------------------------------------------------------------------------------------- */
 
 int av_owns_page(menu_page p) { return p >= PAGE_FOIR; }
 

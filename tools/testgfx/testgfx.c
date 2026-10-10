@@ -1,13 +1,8 @@
-/* mupen64plus-video-suxtytest: a tiny video plugin for exercising suxty's VidExt override on
- * desktop machines without a real video plugin.  It ignores the N64 display lists and just draws
- * an animated triangle every VI.  GPLv2+, like the rest of the project.
- *
- * It also acts as a GL-state canary: it sets GL state ONCE (program, array buffer, blend, viewport)
- * and checks every frame that the state is still what it set.  If the suxty menu ever disturbed the
- * plugin's context, "TESTGFX: GL STATE CORRUPTED" is printed.
- *
- *   gcc -shared -fPIC -I<core>/src/api -o mupen64plus-video-suxtytest.so testgfx.c -ldl
- */
+/* mupen64plus-video-suxtytest: tiny video plugin to exercise suxty's VidExt override without a real one. GPLv2+, like
+ * the rest of the project.
+ * Sets GL state once and checks every frame that it is unchanged: "TESTGFX: GL STATE CORRUPTED" if the menu disturbed
+ * it.
+ * gcc -shared -fPIC -I<core>/src/api -o mupen64plus-video-suxtytest.so testgfx.c -ldl */
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -117,8 +112,7 @@ static GLuint shader(GLenum type, const char *src)
 
 static GFX_INFO l_info;
 
-/* A real video plugin raises the RDP "full sync" interrupt when it has processed a display list; games wait
- * for it, so without this they stall after boot and never poll the controller. */
+/* a real video plugin raises the RDP "full sync" interrupt; games wait for it and otherwise never poll the controller */
 static void rdp_done(void)
 {
     if (l_info.MI_INTR_REG != NULL && l_info.CheckInterrupts != NULL)
@@ -146,7 +140,7 @@ EXPORT int CALL RomOpen(void)
     static const float tri[] = { -0.6f, -0.6f, 0.6f, -0.6f, 0.0f, 0.7f };
     const char *env_w = getenv("TESTGFX_W"), *env_h = getenv("TESTGFX_H");
     int fs = getenv("TESTGFX_FULLSCREEN") != NULL;
-    const char *prof = getenv("TESTGFX_PROFILE");     /* "es" requests a GLES context explicitly like real plugins do */
+    const char *prof = getenv("TESTGFX_PROFILE");
 
     if (env_w) l_w = atoi(env_w);
     if (env_h) l_h = atoi(env_h);
@@ -183,7 +177,6 @@ EXPORT int CALL RomOpen(void)
     glLinkProgram(l_prog);
     glGenBuffers(1, &l_vbo);
 
-    /* state set exactly once; any menu-induced corruption shows up as a mismatch */
     glUseProgram(l_prog);
     glBindBuffer(GL_ARRAY_BUFFER, l_vbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(tri), tri, GL_STATIC_DRAW);

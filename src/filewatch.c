@@ -96,7 +96,6 @@ int filewatch_uses_inotify(const filewatch *w)
     return w->fd >= 0;
 }
 
-/* the file differs from how it was at start */
 static int changed(const filewatch *w, struct stat *st)
 {
     if (stat(w->path, st) != 0 || !S_ISREG(st->st_mode))
@@ -107,7 +106,6 @@ static int changed(const filewatch *w, struct stat *st)
            st->st_mtim.tv_nsec != w->before_mtime.tv_nsec;
 }
 
-/* polling: changed, and the size has stayed put for the settle time */
 static int poll_stat(filewatch *w)
 {
     struct stat st;
@@ -150,7 +148,7 @@ int filewatch_poll(filewatch *w)
     if (!hit && overflow)
     {
         struct stat st;
-        hit = changed(w, &st);                                  /* events were lost: look at the file itself */
+        hit = changed(w, &st);                                  /* events lost: look at the file itself */
     }
     return hit;
 }

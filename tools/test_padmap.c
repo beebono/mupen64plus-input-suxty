@@ -1,10 +1,4 @@
-/* Unit tests for src/padmap.c (the N64 mapping model): axis activation and trigger rest values, deadzone/range
- * shaping, the default mapping on three pad layouts (an Xbox-like pad, the RK3566 handheld whose triggers and D-pad are plain
- * buttons, and a pad with neither sticks nor triggers), the C-Face shift, the D-pad swap, Soft Tilt, the ini round trip and the
- * migration of old pad sections (modifier layer, presets).
- *
- *   make -C projects/unix check          GPLv2+, like the rest of the project.
- */
+/* Unit tests for src/padmap.c; run with make -C projects/unix check. GPLv2+, like the rest of the project. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,7 +11,6 @@ static int l_fail, l_checks;
 
 #define CHECK(cond) do { l_checks++; if (!(cond)) { l_fail++; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
 
-/* ---- fake pad state ---- */
 typedef struct {
     uint8_t buttons[32];
     int     hat[2];
@@ -33,7 +26,7 @@ static int f_rest(void *c, int i)   { return ((fake_pad *) c)->rest[i]; }
 static void fake_reset(fake_pad *f)
 {
     memset(f, 0, sizeof(*f));
-    f->rest[2] = f->rest[5] = -32768;       /* xbox-style triggers */
+    f->rest[2] = f->rest[5] = -32768;
     f->axis[2] = f->axis[5] = -32768;
 }
 
@@ -64,8 +57,8 @@ static void layout_xbox(pad_layout *L)
     L->has_ls = L->has_rs = 1;
 }
 
-/* the RK3566 handheld (retrogame_joypad): A=b0 B=b1 X=b2 Y=b3, L1=b4 R1=b5, L2=b6 R2=b7 (buttons!), select=b8 start=b9,
- * L3=b11 R3=b12, D-pad b13-16, sticks a0-a3 */
+/* the RK3566 handheld (retrogame_joypad): A=b0 B=b1 X=b2 Y=b3, L1=b4 R1=b5, L2=b6 R2=b7 (buttons!), select=b8
+ * start=b9, L3=b11 R3=b12, D-pad b13-16, sticks a0-a3 */
 static void layout_rk3566(pad_layout *L)
 {
     memset(L, 0, sizeof(*L));
@@ -78,7 +71,6 @@ static void layout_rk3566(pad_layout *L)
     L->has_ls = L->has_rs = 1;
 }
 
-/* a small pad: four face buttons, two shoulders, D-pad on a hat, nothing else */
 static void layout_tiny(pad_layout *L)
 {
     memset(L, 0, sizeof(*L));
@@ -113,7 +105,7 @@ static void test_axes(void)
     padmap_io io = { f_button, f_hat, f_axis, f_rest, &f };
 
     fake_reset(&f);
-    s = (padsrc) { PAD_BIND_AXIS, 0, 0, 1 };                 /* right half of the left stick */
+    s = (padsrc) { PAD_BIND_AXIS, 0, 0, 1 };
     f.axis[0] = 20000;  CHECK(padsrc_activation(&s, &io) == 20000);
     f.axis[0] = -20000; CHECK(padsrc_activation(&s, &io) == 0);
     s.dir = -1;         CHECK(padsrc_activation(&s, &io) == 20000);
@@ -137,12 +129,12 @@ static void test_default_two_sticks(void)
     padmap_default(&m, &L, msg, sizeof(msg));
     CHECK(m.deadzone == 20 && m.peak == 80);                   /* stick settings survive a reset to the default mapping */
     CHECK(m.src[N64_A].type == PAD_BIND_BUTTON && m.src[N64_A].index == 0);
-    CHECK(m.src[N64_B].index == 2);                            /* west */
-    CHECK(m.src[N64_Z].type == PAD_BIND_AXIS && m.src[N64_Z].index == 2);   /* left trigger */
+    CHECK(m.src[N64_B].index == 2);
+    CHECK(m.src[N64_Z].type == PAD_BIND_AXIS && m.src[N64_Z].index == 2);
     CHECK(m.src[N64_CUP].type == PAD_BIND_AXIS && m.src[N64_CUP].index == 4 && m.src[N64_CUP].dir == -1);
     CHECK(m.src[N64_SLEFT].index == 0 && m.src[N64_SLEFT].dir == -1);
     CHECK(m.src[N64_DUP].type == PAD_BIND_HAT && m.src[N64_DUP].hat_mask == SDL_HAT_UP);
-    CHECK(m.cface.type == PAD_BIND_NONE && m.softtilt.type == PAD_BIND_NONE && m.dpad_swap == 0);   /* two sticks need no shift */
+    CHECK(m.cface.type == PAD_BIND_NONE && m.softtilt.type == PAD_BIND_NONE && m.dpad_swap == 0);
     m.deadzone = PADMAP_DEFAULT_DEADZONE; m.peak = 100;
 
     fake_reset(&f);
@@ -151,15 +143,14 @@ static void test_default_two_sticks(void)
     CHECK(st.sx == 32767 && st.sy == 0);
     CHECK((st.buttons & (1u << N64_CUP)) && (st.buttons & (1u << N64_Z)) && (st.buttons & (1u << N64_A)));
     CHECK(!(st.buttons & (1u << N64_B)));
-    f.axis[0] = 2000;                                           /* inside the deadzone */
+    f.axis[0] = 2000;
     st = eval(&m, &f);
     CHECK(st.sx == 0);
-    f.axis[1] = -32767;                                         /* stick up -> y negative (SDL) */
+    f.axis[1] = -32767;
     st = eval(&m, &f);
     CHECK(st.sy == -32767);
 }
 
-/* one stick: no right stick for the C buttons, so a spare trigger becomes the C-Face shift */
 static void test_cface_shift(void)
 {
     pad_layout L; padmap m; fake_pad f; n64_state st; char msg[64];
@@ -174,19 +165,19 @@ static void test_cface_shift(void)
           m.cface_src[N64_CLEFT - N64_CUP].index == 2 && m.cface_src[N64_CUP - N64_CUP].index == 3);
 
     fake_reset(&f);
-    f.buttons[0] = 1;                                           /* A alone: N64 A */
+    f.buttons[0] = 1;
     st = eval(&m, &f);
     CHECK(st.buttons == (1u << N64_A) && !st.cshift);
-    f.buttons[7] = 1;                                           /* hold the shift: A becomes C-Down, not A */
+    f.buttons[7] = 1;
     st = eval(&m, &f);
     CHECK(st.cshift && st.buttons == (1u << N64_CDOWN));
-    f.buttons[2] = 1; f.buttons[3] = 1;                         /* X, Y -> C-Left, C-Up (B is not N64 B meanwhile) */
+    f.buttons[2] = 1; f.buttons[3] = 1;
     st = eval(&m, &f);
     CHECK(st.buttons == ((1u << N64_CDOWN) | (1u << N64_CLEFT) | (1u << N64_CUP)));
-    f.buttons[7] = 0;                                           /* shift released: back to normal */
+    f.buttons[7] = 0;
     st = eval(&m, &f);
     CHECK(st.buttons == ((1u << N64_A) | (1u << N64_B)));
-    f.buttons[6] = 1;                                           /* L2 = Z, unaffected by the shift */
+    f.buttons[6] = 1;
     st = eval(&m, &f);
     CHECK(st.buttons & (1u << N64_Z));
     /* the shift button is never also an input: map it to Start as well and Start still does not fire with it */
@@ -194,10 +185,8 @@ static void test_cface_shift(void)
     f.buttons[7] = 1;
     st = eval(&m, &f);
     CHECK(!(st.buttons & (1u << N64_START)));
-    /* clearing it removes the whole shift */
     padmap_set_cface(&m, &L, &(padsrc) { 0 });
     CHECK(m.cface.type == PAD_BIND_NONE && m.cface_src[0].type == PAD_BIND_NONE);
-    /* setting it again takes the face buttons from the layout */
     padmap_set_cface(&m, &L, &(padsrc) { PAD_BIND_BUTTON, 0, 12, 0 });
     CHECK(m.cface.index == 12 && m.cface_src[N64_CUP - N64_CUP].index == 3);
 }
@@ -211,9 +200,9 @@ static void test_tiny_default(void)
     padmap_default(&m, &L, msg, sizeof(msg));                                     /* no sticks: D-pad is the stick */
     CHECK(m.src[N64_SLEFT].type == PAD_BIND_HAT && m.src[N64_SLEFT].hat_mask == SDL_HAT_LEFT);
     CHECK(m.src[N64_DLEFT].type == PAD_BIND_NONE && m.dpad_swap == 0);
-    CHECK(m.src[N64_Z].type == PAD_BIND_NONE);                                    /* nothing sensible for Z */
-    CHECK(m.cface.type == PAD_BIND_NONE && msg[0] != 0);                          /* no spare button for the shift, and it says so */
-    CHECK(m.src[N64_CUP].index == 3 && m.src[N64_CRIGHT].index == 1);             /* last-resort C buttons */
+    CHECK(m.src[N64_Z].type == PAD_BIND_NONE);
+    CHECK(m.cface.type == PAD_BIND_NONE && msg[0] != 0);
+    CHECK(m.src[N64_CUP].index == 3 && m.src[N64_CRIGHT].index == 1);
     fake_reset(&f);
     f.hat[0] = SDL_HAT_RIGHT | SDL_HAT_UP;
     st = eval(&m, &f);
@@ -222,12 +211,11 @@ static void test_tiny_default(void)
     layout_rk3566(&L);
     padmap_clear(&m);
     padmap_default(&m, &L, msg, sizeof(msg));
-    CHECK(m.src[N64_DUP].index == 13);                                            /* D-pad up button */
-    CHECK(m.src[N64_SUP].type == PAD_BIND_AXIS && m.src[N64_SUP].index == 1);     /* left stick */
-    CHECK(m.src[N64_CUP].index == 3 && m.src[N64_CUP].dir == -1);                 /* right stick = C */
+    CHECK(m.src[N64_DUP].index == 13);
+    CHECK(m.src[N64_SUP].type == PAD_BIND_AXIS && m.src[N64_SUP].index == 1);
+    CHECK(m.src[N64_CUP].index == 3 && m.src[N64_CUP].dir == -1);
 }
 
-/* the D-pad swap: stick channels and D-pad channels exchanged */
 static void test_dpad_swap(void)
 {
     pad_layout L; padmap m; fake_pad f; n64_state st; char msg[64];
@@ -238,34 +226,32 @@ static void test_dpad_swap(void)
     padmap_default(&m, &L, msg, sizeof(msg));
     CHECK(padmap_dpad_is_stick(&m, &L) == 0 && padmap_dpad_is_stick(&m, NULL) == 0);
     fake_reset(&f);
-    f.buttons[13] = 1;                                                            /* D-pad up */
+    f.buttons[13] = 1;
     st = eval(&m, &f);
     CHECK(st.buttons == (1u << N64_DUP) && st.sy == 0);
 
-    m.dpad_swap = 1;                                                              /* the D-pad now drives the stick ... */
+    m.dpad_swap = 1;
     CHECK(padmap_dpad_is_stick(&m, &L) == 1 && padmap_dpad_is_stick(&m, NULL) == 1);
     st = eval(&m, &f);
     CHECK(st.buttons == 0 && st.sy == -32767 && st.sx == 0);
     f.buttons[13] = 0;
-    f.axis[0] = 32767;                                                            /* ... and the left stick the D-pad */
+    f.axis[0] = 32767;
     st = eval(&m, &f);
     CHECK(st.buttons == (1u << N64_DRIGHT) && st.sx == 0);
-    f.axis[0] = 10000;                                                            /* a half-pressed stick is not a D-pad press */
+    f.axis[0] = 10000;
     st = eval(&m, &f);
     CHECK(st.buttons == 0);
     f.axis[0] = 0;
-    f.buttons[15] = 1; f.buttons[14] = 1;                                         /* D-pad left + down: a diagonal on the stick */
+    f.buttons[15] = 1; f.buttons[14] = 1;
     st = eval(&m, &f);
     CHECK(st.sx == -32767 && st.sy == 32767 && st.buttons == 0);
 
-    /* the rows the menu shows follow the swap, and it is its own inverse */
     CHECK(padmap_chan(&m, N64_DUP) == N64_SUP && padmap_chan(&m, N64_SLEFT) == N64_DLEFT && padmap_chan(&m, N64_A) == N64_A);
     for (i = 0; i < N64_NUM; i++)
         CHECK(padmap_chan(&m, padmap_chan(&m, (n64_ctl) i)) == (n64_ctl) i);
     m.dpad_swap = 0;
     CHECK(padmap_chan(&m, N64_DUP) == N64_DUP);
 
-    /* a pad whose default has the D-pad on the stick rows: swap makes it the D-pad */
     layout_tiny(&L);
     padmap_default(&m, &L, msg, sizeof(msg));
     CHECK(padmap_dpad_is_stick(&m, &L) == 1 && padmap_dpad_is_stick(&m, NULL) == 0);   /* by the rows; the flag alone does not know */
@@ -284,10 +270,10 @@ static void test_soft_tilt(void)
     layout_rk3566(&L);
     padmap_clear(&m);
     padmap_default(&m, &L, msg, sizeof(msg));
-    m.softtilt = (padsrc) { PAD_BIND_BUTTON, 0, 7, 0 };                           /* R2 */
+    m.softtilt = (padsrc) { PAD_BIND_BUTTON, 0, 7, 0 };
     m.tilt_pct = 50;
     fake_reset(&f);
-    f.axis[0] = 32767;                                                            /* stick full right */
+    f.axis[0] = 32767;
     st = eval(&m, &f);
     CHECK(st.sx == 32767 && !st.tilt);
     f.buttons[7] = 1;
@@ -318,7 +304,7 @@ static void test_soft_tilt(void)
     /* digital sources: the D-pad as the stick at full deflection gives half strength, diagonals included */
     m.dpad_swap = 1;
     f.axis[0] = f.axis[1] = 0;
-    f.buttons[13] = 1; f.buttons[16] = 1;                                         /* D-pad up + right */
+    f.buttons[13] = 1; f.buttons[16] = 1;
     st = eval(&m, &f);
     CHECK(st.sx == 16383 && st.sy == -16383);
     f.buttons[7] = 0;
@@ -326,7 +312,6 @@ static void test_soft_tilt(void)
     CHECK(st.sx == 32767 && st.sy == -32767);
     m.dpad_swap = 0;
     f.buttons[13] = f.buttons[16] = 0;
-    /* the multiplier */
     f.axis[0] = 32767; f.buttons[7] = 1;
     m.tilt_pct = 25;  st = eval(&m, &f); CHECK(st.sx == 8191);
     m.tilt_pct = 0;   st = eval(&m, &f); CHECK(st.sx == 0);
@@ -378,7 +363,6 @@ static void test_ini_roundtrip(void)
     for (n = 0; n < N64_NUM; n++)
         CHECK(memcmp(&b.src[n], &a.src[n], sizeof(padsrc)) == 0);
     CHECK(ini_has(ini, sec, "dpad_swap") && ini_has(ini, sec, "cface") && ini_has(ini, sec, "softtilt") && !ini_has(ini, sec, "preset"));
-    /* an overlay (the per-game file of M4) wins over the global one: the swap and a button */
     {
         ini_t *game = ini_new();
         padmap c;
@@ -404,7 +388,6 @@ static void test_ini_roundtrip(void)
     ini_free(ini);
 }
 
-/* pad sections written by the front-end / early plugin builds: the modifier layer and the presets */
 static void test_migration(void)
 {
     ini_t *ini = ini_new();
@@ -413,7 +396,6 @@ static void test_migration(void)
     n64_state st;
     int n;
 
-    /* "Face buttons = C": the modifier was the shift, mod_c_* were the face buttons */
     ini_set(ini, "pad:one", "preset", "Face buttons = C");
     ini_set(ini, "pad:one", "deadzone", "15");
     ini_set(ini, "pad:one", "modifier", "button:7");
@@ -423,12 +405,10 @@ static void test_migration(void)
     ini_set(ini, "pad:one", "mod_c_right", "button:1");
     ini_set(ini, "pad:one", "mod_c_left", "button:2");
     ini_set(ini, "pad:one", "mod_c_up", "button:3");
-    ini_set(ini, "pad:one", "mod_dpad_up", "button:9");           /* anything else in the layer has no home any more */
-    /* a modifier whose layer did something else: dropped */
+    ini_set(ini, "pad:one", "mod_dpad_up", "button:9");
     ini_set(ini, "pad:two", "modifier", "button:6");
     ini_set(ini, "pad:two", "mod_a", "button:4");
     ini_set(ini, "pad:two", "a", "button:0");
-    /* a layer without a modifier: dropped */
     ini_set(ini, "pad:three", "mod_c_up", "button:3");
     ini_set(ini, "pad:three", "a", "button:0");
     ini_set(ini, "menu", "dim_percent", "40");
@@ -443,8 +423,7 @@ static void test_migration(void)
           strcmp(ini_get(ini, "pad:two", "a", ""), "button:0") == 0);
     CHECK(!ini_has(ini, "pad:three", "mod_c_up") && !ini_has(ini, "pad:three", "cface") && ini_has(ini, "pad:three", "a"));
     CHECK(ini_get_int(ini, "menu", "dim_percent", 0) == 40);
-    CHECK(padmap_migrate_ini(ini) == 0);                           /* nothing left to do */
-    /* and the migrated section works: the shift turns A into C-Down */
+    CHECK(padmap_migrate_ini(ini) == 0);
     padmap_clear(&m);
     CHECK(padmap_load(&m, ini, NULL, "pad:one") == 1);
     CHECK(m.cface.index == 7 && m.cface_src[N64_CDOWN - N64_CUP].index == 0);

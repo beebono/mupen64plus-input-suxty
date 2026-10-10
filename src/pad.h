@@ -19,11 +19,7 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-/* Gamepad abstraction for the suxty menu and the N64 controllers.
- *
- * suxty only ever *polls* controller state (SDL_GameControllerGetButton etc.).  It never consumes the SDL event
- * queue for controller input, so it cannot steal events from the core's event filter.
- */
+/* gamepad layer: only polls controller state, never consumes the SDL event queue: cannot steal events from the core's event filter */
 
 #ifndef PAD_H
 #define PAD_H
@@ -39,7 +35,7 @@ typedef enum {
     PAD_L, PAD_R,
     PAD_START, PAD_SELECT,
     PAD_L3, PAD_R3, PAD_GUIDE,
-    PAD_L2, PAD_R2,                 /* the triggers (analog axes or plain buttons, depending on the pad) */
+    PAD_L2, PAD_R2,                 /* analog axes or plain buttons, depending on the pad */
     PAD_NUM
 } pad_button;
 
@@ -49,95 +45,78 @@ typedef enum {
 int  pad_init(void);
 void pad_shutdown(void);
 
-/* Bitmask of currently held logical buttons, all controllers merged.  Also folds in
- * the left stick as D-pad (beyond the nav deadzone) and any injected test buttons. */
+/* all controllers merged; folds in the left stick as D-pad and injected test buttons */
 uint32_t pad_poll(void);
-void     pad_refresh(void);     /* SDL_JoystickUpdate + input filter / N64 player update, no button masks (GetKeys) */
+void     pad_refresh(void);
 
-/* The physical SDL_Joystick control behind a logical button, as the SDL game controller mapping (or the
- * generic fallback layout) defines it.  inputfilter.c uses this to hide exactly those controls from the
- * game, and the remap UI (padmap.c) uses it to build the preset layouts. */
 typedef struct {
     enum { PAD_BIND_NONE = 0, PAD_BIND_BUTTON, PAD_BIND_AXIS, PAD_BIND_HAT } type;
-    int index;        /* button / axis / hat index */
-    int hat_mask;     /* SDL_HAT_* bits, for PAD_BIND_HAT */
+    int index;
+    int hat_mask;
 } pad_bind;
 
-/* Bindings of the pad that owns `js`, PAD_NUM entries, or NULL if suxty does not know that joystick. */
 const pad_bind *pad_bindings_for(SDL_Joystick *js);
 
-/* One physical control of an SDL joystick, in the raw domain of SDL joysticks (button / hat / axis
- * indices).  Used by the remap layer and by the capture prompt.  An axis source is a half axis: `dir` is the
- * direction (+1 / -1) in which it counts as pressed, measured from the axis' rest value (so a trigger that
- * rests at -32768 is "axis N, +"). */
+/* an axis source is a half axis: `dir` (+1 / -1) is where it counts as pressed, from the axis' rest value (a trigger
+ * resting at -32768 is "axis N, +") */
 typedef struct {
-    uint8_t type;       /* PAD_BIND_NONE / BUTTON / AXIS / HAT */
-    uint8_t hat_mask;   /* PAD_BIND_HAT: one SDL_HAT_* direction */
+    uint8_t type;
+    uint8_t hat_mask;
     int16_t index;
-    int8_t  dir;        /* PAD_BIND_AXIS: +1 / -1 */
+    int8_t  dir;
 } padsrc;
 
-/* Everything the remap layer needs to know about a connected pad. */
 typedef struct {
     char     name[64];
     int      generic;        /* no SDL game controller mapping: the layout below is a guess */
-    pad_bind b[PAD_NUM];     /* logical button -> physical control */
-    pad_bind lx, ly, rx, ry; /* stick axes (PAD_BIND_AXIS) if the pad has them */
+    pad_bind b[PAD_NUM];
+    pad_bind lx, ly, rx, ry;
     int      has_ls, has_rs;
-    int      plausible;      /* looks like a real gamepad (mapped, or enough buttons plus a stick / hat): auto-assignment only uses these */
+    int      plausible;      /* auto-assignment only uses plausible pads */
 } pad_layout;
 
-int            pad_count(void);                         /* connected pads suxty knows */
-int            pad_generation(void);                    /* changes when the list was rebuilt (hot-plug): indices are then stale */
+int            pad_count(void);
+int            pad_generation(void);                    /* indices are stale after a change */
 const char    *pad_name(int pad);
-SDL_Joystick  *pad_joystick(int pad);                   /* the SDL_Joystick behind a pad */
-int            pad_device_index(int pad);               /* SDL device index */
-int            pad_layout_get(int pad, pad_layout *out);   /* 0 ok */
-/* Which logical button (pad_button) is this physical control?  -1 if none.  Axes match triggers only. */
+SDL_Joystick  *pad_joystick(int pad);
+int            pad_device_index(int pad);
+int            pad_layout_get(int pad, pad_layout *out);
+/* -1 if none; axes match triggers only */
 int            pad_logical_for(int pad, const padsrc *s);
 
-/* Button capture for the remap UI: remembers the current state of the pads as a baseline, then reports the
- * first control that is pressed / moved far enough.  Buttons that are already held when the capture begins
- * are ignored until they have been released.  pad < 0 listens to every pad. */
+/* buttons already held when the capture begins are ignored until released; pad < 0 listens to every pad */
 void pad_capture_begin(int pad);
-int  pad_capture_poll(padsrc *out, int *pad_out);        /* 1 = captured something */
-void pad_capture_inject(const padsrc *s);                /* test hook: the next poll returns this */
+int  pad_capture_poll(padsrc *out, int *pad_out);
+void pad_capture_inject(const padsrc *s);
 
-/* Human readable, in generic names: "South", "DPad Right", "L1", "L-Stick Left"; "Btn 12" / "Hat0 Up" / "Axis4+" for a control
- * that has none. */
 void pad_format_src(int pad, const padsrc *s, char *out, size_t size);
 void pad_format_src_short(const padsrc *s, char *out, size_t size);      /* always the raw name */
-const char *pad_generic_name(pad_button b);                               /* "South", "L1" ... */
-/* Digital buttons only (no stick-as-dpad), in the physical-button domain (A/B not swapped).  Does NOT call
- * SDL_JoystickUpdate().  out[i] is the state of pad i (i < PAD_MAX_PADS); out[PAD_MAX_PADS] holds the
- * keyboard / injected test input.  Returns the number of pads. */
+const char *pad_generic_name(pad_button b);
+/* physical-button domain (A/B not swapped); does NOT call SDL_JoystickUpdate(); out[PAD_MAX_PADS] is keyboard /
+ * injected input */
 #define PAD_MAX_PADS 8
 int pad_read_digital(uint32_t out[PAD_MAX_PADS + 1]);
-/* Index of the pad that owns joystick `js`, or -1. */
 int pad_index_for(SDL_Joystick *js);
-/* "A/B swap" for a logical mask: converts a mask in the user-facing domain to the physical one and back. */
 uint32_t pad_swap_ab_mask(uint32_t mask);
 
-void pad_set_swap_ab(int swap);              /* for Nintendo-labelled vs Xbox-labelled layouts */
-void pad_set_nav_deadzone(int percent);      /* 10..90 */
-void pad_inject(uint32_t mask);              /* test hook: virtual held buttons */
-void pad_enable_keyboard(int enable);        /* desktop dev aid: arrows/Z/X/Enter/RShift */
+void pad_set_swap_ab(int swap);
+void pad_set_nav_deadzone(int percent);
+void pad_inject(uint32_t mask);
+void pad_enable_keyboard(int enable);
 
-/* "select+start" <-> mask. */
 uint32_t    pad_parse_combo(const char *str);
 void        pad_format_combo(uint32_t mask, char *out, size_t outsize);
 const char *pad_button_name(pad_button b);
 
-/* Edge detection with auto-repeat on the D-pad, for menu navigation. */
 typedef struct {
     uint32_t held;
-    uint32_t pressed;      /* rising edges this update (+ repeats for directions) */
+    uint32_t pressed;      /* rising edges (+ repeats for directions) */
     uint32_t released;
     uint32_t prev;
     uint32_t next_repeat_ms[PAD_NUM];
 } pad_tracker;
 
-void pad_tracker_reset(pad_tracker *t, uint32_t held_now);   /* treat currently held buttons as "already pressed" */
+void pad_tracker_reset(pad_tracker *t, uint32_t held_now);   /* currently held buttons count as already pressed */
 void pad_tracker_update(pad_tracker *t, uint32_t held, uint32_t now_ms);
 
 #endif /* PAD_H */

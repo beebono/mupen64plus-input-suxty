@@ -18,13 +18,10 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The one audio option suxty offers: the core's own volume (M64CORE_AUDIO_VOLUME), which every audio plugin implements.
- * [audio] volume = 0-100 in suxty.cfg or the game file; absent means whatever the audio plugin starts with. */
-
 #ifndef AUDIO_H
 #define AUDIO_H
 
-int  audio_volume_now(void);          /* 0-100, -1 if the core / audio plugin can't tell (the menu then hides the row) */
-void audio_apply_volume(void);        /* the configured volume (this game's, else the global one) -> the core */
+int  audio_volume_now(void);
+void audio_apply_volume(void);
 
 #endif /* AUDIO_H */

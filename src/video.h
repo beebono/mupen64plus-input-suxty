@@ -19,31 +19,22 @@
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
 
-/* Video extension override: suxty owns the SDL2 window, the GL context(s) and
- * the buffer swap.  Installed with CoreOverrideVidExt().
- *
- * Two GL contexts are created on the one window:
- *   game context     - what the video plugin renders with (profile/version chosen by the plugin)
- *   overlay context  - private to suxty, used only while the menu is open.  Because it is a
- *                      separate context, the menu can never disturb the plugin's GL state
- *                      (bound programs, buffers, FBOs, VAOs, blend state ...), and the plugin
- *                      resumes with its state exactly as it left it.
- */
+/* the game context is the plugin's; the overlay context is private to suxty, so the menu never disturbs the plugin's
+ * GL state */
 
 #ifndef VIDEO_H
 #define VIDEO_H
 
 #include "m64p_types.h"
 
-m64p_error video_install(void);                 /* CoreOverrideVidExt with our function table */
-void video_uninstall(void);                     /* plugin shutdown: deactivate the override, close a window left open */
+m64p_error video_install(void);
+void video_uninstall(void);
 
-/* used by session.c */
-int  video_ui_available(void);                  /* overlay context created and usable */
+int  video_ui_available(void);
 void video_drawable_size(int *w, int *h);
-int  video_enter_ui(void);                      /* make the overlay context current on this thread */
-void video_leave_ui(void);                      /* make the game context current again */
-void video_present(void);                       /* swap the window's buffers */
-void video_set_unthrottled(int unthrottled);    /* swap interval 0 while fast-forwarding; the plugin's setting otherwise */
+int  video_enter_ui(void);
+void video_leave_ui(void);
+void video_present(void);
+void video_set_unthrottled(int unthrottled);    /* swap interval 0 while fast-forwarding */
 
 #endif /* VIDEO_H */

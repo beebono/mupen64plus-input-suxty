@@ -153,7 +153,6 @@ int states_pj_new_path(int slot, int zip, char *out, size_t size)
     return (n < 0 || (size_t) n >= size) ? -1 : 0;
 }
 
-/* newest of the two PJ64 spellings; returns 1 and fills what it found */
 static int pj_find(int slot, char *path, size_t size, long long *sz, time_t *mt)
 {
     int best = 0, zip;

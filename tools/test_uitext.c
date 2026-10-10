@@ -1,9 +1,5 @@
-/* Unit tests for src/uitext.c: cutting with "..", the two line wrapping of the status line, the Test controller's arrows and
- * button cells (all the N64 buttons in a fixed order, the pressed ones lit in their places) and the capture message.
- * The text width is 12 pixels per character, like the hint face at 1x.
- *
- *   make -C projects/unix check          GPLv2+, like the rest of the project.
- */
+/* Unit tests for src/uitext.c; run with make -C projects/unix check. GPLv2+, like the rest of the project.
+ * The text width is 12 pixels per character, like the hint face at 1x. */
 #include <stdio.h>
 #include <string.h>
 
@@ -39,7 +35,7 @@ static void test_fit(void)
 static void test_wrap(void)
 {
     char a[96], b[96];
-    const char *msg = "L-Stick Left " FONT_CH_RIGHT " N64 Stick Left (was Stick Right)";   /* 49 characters */
+    const char *msg = "L-Stick Left " FONT_CH_RIGHT " N64 Stick Left (was Stick Right)";
     int n, avail, i;
     static const char *const texts[] = {
         "South " FONT_CH_RIGHT " A", "South " FONT_CH_RIGHT " A (was B)", "L-Stick Left " FONT_CH_RIGHT " C-Face Shift (was Soft Tilt)",
@@ -47,14 +43,12 @@ static void test_wrap(void)
         "a b c d e f g h i j k l m n o p q r s t u v w x y z a b c d e f", "x", ""
     };
 
-    /* fits: one line, untouched */
     n = uitext_wrap2("South " FONT_CH_RIGHT " A (was B)", W(40), mw, NULL, a, b, sizeof(a));
     CHECK(n == 1 && b[0] == 0);
     CHECK_STR(a, "South " FONT_CH_RIGHT " A (was B)");
     n = uitext_wrap2("", W(40), mw, NULL, a, b, sizeof(a));
     CHECK(n == 1 && a[0] == 0 && b[0] == 0);
 
-    /* exactly as wide as the room: still one line */
     n = uitext_wrap2("12345 12345", W(11), mw, NULL, a, b, sizeof(a));
     CHECK(n == 1);
     n = uitext_wrap2("12345 12345", W(10), mw, NULL, a, b, sizeof(a));
@@ -62,7 +56,6 @@ static void test_wrap(void)
     CHECK_STR(a, "12345");
     CHECK_STR(b, "12345");
 
-    /* too wide: break at the last space that fits */
     n = uitext_wrap2(msg, W(40), mw, NULL, a, b, sizeof(a));
     CHECK(n == 2);
     CHECK_STR(a, "L-Stick Left " FONT_CH_RIGHT " N64 Stick Left (was Stick");     /* 40 characters: the last word that fits */
@@ -76,7 +69,6 @@ static void test_wrap(void)
     CHECK_STR(a, "one two");                  /* "one two " would be 8 + the space; the break is at the space after "two" */
     CHECK_STR(b, "three f..");                /* "three four" is 10 wide: the second line is cut, not wrapped again */
 
-    /* an explicit newline decides (the toasts do the same) */
     n = uitext_wrap2("first line\nsecond line", W(40), mw, NULL, a, b, sizeof(a));
     CHECK(n == 2);
     CHECK_STR(a, "first line");
@@ -86,17 +78,14 @@ static void test_wrap(void)
     n = uitext_wrap2("only\n", W(40), mw, NULL, a, b, sizeof(a));
     CHECK(n == 1 && strcmp(a, "only") == 0);
 
-    /* no space to break at: at the last character that fits */
     n = uitext_wrap2("abcdefghijklmnop", W(10), mw, NULL, a, b, sizeof(a));
     CHECK(n == 2);
     CHECK_STR(a, "abcdefghij");
     CHECK_STR(b, "klmnop");
 
-    /* a second line that does not fit either is cut with ".." */
     n = uitext_wrap2("abcdefghijklmnopqrstuvwxyz0123456789", W(10), mw, NULL, a, b, sizeof(a));
     CHECK(n == 2 && strcmp(a, "abcdefghij") == 0 && strcmp(b, "klmnopqr..") == 0);
 
-    /* whatever the text and the room: both lines fit, and without a cut nothing is lost */
     for (i = 0; i < (int) (sizeof(texts) / sizeof(texts[0])); i++)
         for (avail = W(3); avail <= W(70); avail += 12)
         {
@@ -125,7 +114,7 @@ static void test_arrows(void)
     CHECK_STR(o, "       ");
     uitext_arrows(1, 1, 1, 1, o);
     CHECK_STR(o, UITEXT_ARROWS_ALL);
-    CHECK_STR(o, FONT_CH_UP " " FONT_CH_DOWN " " FONT_CH_LEFT " " FONT_CH_RIGHT);       /* fixed order: up, down, left, right */
+    CHECK_STR(o, FONT_CH_UP " " FONT_CH_DOWN " " FONT_CH_LEFT " " FONT_CH_RIGHT);
     for (bits = 0; bits < 16; bits++)
     {
         up = bits & 1; down = (bits >> 1) & 1; left = (bits >> 2) & 1; right = (bits >> 3) & 1;
@@ -138,7 +127,6 @@ static void test_arrows(void)
     CHECK(strlen(UITEXT_ARROWS_ALL) == UITEXT_ARROWS_LEN);
 }
 
-/* the Test controller's table: N64 A B Z Start L R on bits 0..5 */
 static const uitext_btn l_tab[] = {
     { 1u << 0, "A" }, { 1u << 1, "B" }, { 1u << 2, "Z" }, { 1u << 3, "St" }, { 1u << 4, "L" }, { 1u << 5, "R" },
 };
@@ -150,20 +138,17 @@ static void test_btn_cells(void)
     int n, i, k;
     unsigned mask;
 
-    /* none down: the whole row dimmed, nothing lit */
     n = uitext_btn_cells(l_tab, NTAB, 0, g, o, sizeof(g));
     CHECK(n == 0);
     CHECK_STR(g, "A B Z St L R");
     CHECK_STR(o, "            ");
-    /* one down: only its name, in its place */
     n = uitext_btn_cells(l_tab, NTAB, 1u << 2, g, o, sizeof(g));
     CHECK(n == 1);
     CHECK_STR(g, "A B Z St L R");
     CHECK_STR(o, "    Z       ");
-    n = uitext_btn_cells(l_tab, NTAB, 1u << 3, g, o, sizeof(g));              /* a two letter name takes two places */
+    n = uitext_btn_cells(l_tab, NTAB, 1u << 3, g, o, sizeof(g));
     CHECK(n == 1);
     CHECK_STR(o, "      St    ");
-    /* the fixed order, whatever the bit order of the mask */
     n = uitext_btn_cells(l_tab, NTAB, (1u << 5) | (1u << 3) | (1u << 0), g, o, sizeof(g));
     CHECK(n == 3);
     CHECK_STR(o, "A     St   R");
@@ -174,7 +159,6 @@ static void test_btn_cells(void)
     CHECK(n == 0);
     CHECK_STR(o, "            ");
 
-    /* whatever is pressed: the ghost never changes, `on` has its width, and shows each name exactly where the ghost has it, or blank */
     for (mask = 0; mask < 64; mask++)
     {
         n = uitext_btn_cells(l_tab, NTAB, mask, g, o, sizeof(g));
@@ -187,8 +171,8 @@ static void test_btn_cells(void)
         {
             size_t len = strlen(l_tab[k].name);
             int lit = (int) ((mask >> k) & 1);
-            CHECK(strncmp(g + i, l_tab[k].name, len) == 0);               /* the name is in its place in the ghost ... */
-            CHECK(lit == (strncmp(o + i, l_tab[k].name, len) == 0));      /* ... and lit exactly when the button is down */
+            CHECK(strncmp(g + i, l_tab[k].name, len) == 0);
+            CHECK(lit == (strncmp(o + i, l_tab[k].name, len) == 0));
             i += (int) len + 1;
         }
     }
@@ -210,7 +194,7 @@ static void test_remap_msg(void)
     CHECK_STR(o, "South " FONT_CH_RIGHT " A (was B)");
     uitext_remap_msg(o, sizeof(o), "L-Stick Left", "C-Face Shift", "Soft Tilt");
     CHECK_STR(o, "L-Stick Left " FONT_CH_RIGHT " C-Face Shift (was Soft Tilt)");
-    uitext_remap_msg(o, 8, "South", "A", "B");              /* a small buffer is cut, not overrun */
+    uitext_remap_msg(o, 8, "South", "A", "B");
     CHECK(strlen(o) == 7);
 }
 

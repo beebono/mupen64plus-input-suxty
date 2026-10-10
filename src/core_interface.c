@@ -18,9 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The core functions suxty uses.  The front-end loaded the core and hands us its library handle in PluginStartup(),
- * so this only resolves the function pointers (and never closes the handle). */
-
 #include <stdio.h>
 #include <string.h>
 
@@ -63,7 +60,6 @@ m64p_error AttachCoreHandle(m64p_dynlib_handle handle)
         return M64ERR_INPUT_INVALID;
     CoreHandle = handle;
 
-    /* the core is a plugin of type CORE: check its API major version */
     *(void **) (&get_version) = dlsym(handle, "PluginGetVersion");
     if (get_version != NULL)
     {

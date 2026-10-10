@@ -48,9 +48,7 @@
 #include "toast.h"
 #include "video.h"
 
-/* See the threading notes in session.h. */
-
-static SDL_atomic_t  l_menu_open;               /* 1 while the nested menu loop runs */
+static SDL_atomic_t  l_menu_open;
 static SDL_threadID  l_menu_thread;
 static int           l_stop_sent;
 static uint32_t      l_prev_held;
@@ -58,43 +56,39 @@ static unsigned      l_frames;
 
 #define FRAME_MS 16
 
-/* ---- save / load: fire and forget ------------------------------------------------------------------ */
-
-/* The core executes state commands from its interrupt handler, i.e. only while the emulator runs, and writes a save on
- * a worker thread.  suxty sends the command and does not track it: an inotify watch on the state directory (taken
- * before the command, polled once per frame; filewatch.h) reports the moment the worker closes the file, and a save is
- * "not written" if that has not happened after SAVE_WAIT_MS.  A load is sent and left to the core. */
+/* the core runs state commands from its interrupt handler (only while the emulator runs) and saves on a worker
+ * thread:
+ * fire and forget; a save counts as written when the inotify watch sees the file closed, else "not written" after
+ * SAVE_WAIT_MS */
 #define SAVE_WAIT_MS 5000u
 
 static struct {
     int             active;
-    int             slot;                /* 0-9, or STATES_AUTO_SLOT */
-    int             quit_after;          /* stop the emulator once the file is written (auto slot on quit) */
-    int             rotated;             /* the old auto file was moved to a backup before this save */
+    int             slot;
+    int             quit_after;
+    int             rotated;
     char            path[PATH_MAX];
     filewatch       fw;
     uint32_t        t0;
 } l_save;
 
-/* startup check of the auto-save (see autosave.h): the toast waits for the first frames, when it can be drawn */
+/* the toast waits for the first frames, when it can be drawn */
 static char         l_startup_toast[96];
 static int          l_startup_toast_kind;
 
-static int  l_quitting;             /* quit sequence in progress: hotkeys are off */
+static int  l_quitting;
 static int  l_ff_on;
 static int  l_ff_saved_factor = 100;
 
-/* fast-forward + hotkey bookkeeping */
-static quitarm_t l_quit_arm;           /* Confirm Quit: the first press of the quit hotkey */
+static quitarm_t l_quit_arm;
 
 int session_menu_blocks_this_thread(void)
 {
     return SDL_AtomicGet(&l_menu_open) && SDL_ThreadID() != l_menu_thread;
 }
 
-/* Game start: is the auto-save we left last time good?  suxty never loads it (the launcher does, with --savestate, later
- * than this: the core opens the file when the emulator runs), so the file is checked and, if damaged, replaced by the
- * previous one right here.  See autosave.h. */
+/* suxty never loads the auto-save (the launcher does, later, with --savestate): check it here and replace a damaged
+ * file with the previous one */
 static void autosave_startup_check(void)
 {
     char path[PATH_MAX], ss[PATH_MAX];
@@ -145,8 +139,6 @@ int session_init(void)
     return 0;
 }
 
-/* ---- core control helpers ------------------------------------------------------------------ */
-
 static int emu_state(void)
 {
     int v = 0;
@@ -177,8 +169,6 @@ static void set_slot(int slot)
     if (slot >= 0 && slot < STATES_NUM_SLOTS && slot != cur_slot())
         (*CoreDoCommand)(M64CMD_STATE_SET_SLOT, slot, NULL);
 }
-
-/* ---- fast-forward ---------------------------------------------------------------------------- */
 
 static void ff_set(int on)
 {
@@ -233,8 +223,6 @@ void session_shutdown(void)
     l_prev_held = 0;
 }
 
-/* ---- screenshots (test hook) ---------------------------------------------------------------- */
-
 static void save_shot(const uint8_t *rgba, int w, int h)
 {
     char path[1100];
@@ -247,8 +235,8 @@ static void save_shot(const uint8_t *rgba, int w, int h)
     }
 }
 
-/* Toasts and the fast-forward badge are drawn over the finished game frame, in suxty's private GL context,
- * right before the swap.  If a debug screenshot was asked for, it is read back from there so it shows them. */
+/* drawn in suxty's private GL context right before the swap; a debug screenshot is read back from there so it shows
+ * them */
 static void draw_overlay(int want_shot)
 {
     int w, h;
@@ -269,9 +257,6 @@ static void draw_overlay(int want_shot)
         save_shot(shot, w, h);
 }
 
-/* ---- save / load ----------------------------------------------------------------------------- */
-
-/* Sends M64CMD_STATE_SAVE for a slot (or the auto slot).  Returns 0 if the command was sent. */
 static int start_save(int slot, int quit_after)
 {
     char why[64];
@@ -295,8 +280,8 @@ static int start_save(int slot, int quit_after)
         return -1;
     if (slot == STATES_AUTO_SLOT)
     {
-        /* the core rewrites the file in place: keep the previous auto-save aside until the next game start has
-         * seen that the new one is good (autosave.h) */
+        /* the core rewrites the file in place: keep the previous auto-save aside until the next game start has seen
+         * that the new one is good */
         int rot = autosave_rotate(l_save.path);
         if (rot > 0)
             l_save.rotated = 1;
@@ -335,14 +320,13 @@ static void save_failed(const char *what)
     filewatch_stop(&l_save.fw);
     toast_show(TOAST_ERROR, "Save not written");
     DebugMessage(M64MSG_ERROR, "the state file '%s' %s", l_save.path, what);
-    if (l_save.rotated && autosave_unrotate(l_save.path))        /* nothing came of it: the old auto-save is back */
+    if (l_save.rotated && autosave_unrotate(l_save.path))
         DebugMessage(M64MSG_INFO, "the previous auto-save was put back");
     l_save.rotated = 0;
     if (quit)
         l_quitting = 0;                /* stay in the game rather than lose progress: Quit again to retry */
 }
 
-/* once per presented frame: has the worker finished the file? */
 static void save_poll(void)
 {
     struct stat st;
@@ -350,8 +334,8 @@ static void save_poll(void)
         return;
     if (filewatch_poll(&l_save.fw))
     {
-        /* closed by the writer.  The core's own status message follows within microseconds; the emulator is only
-         * stopped on a later frame, long before the core tears its configuration down. */
+        /* closed by the writer. The core's own status message follows within microseconds; the emulator is only
+         * stopped on a later frame, long before the core tears its configuration down */
         int quit = l_save.quit_after;
         if (stat(l_save.path, &st) != 0 || st.st_size <= 0)
         {
@@ -375,7 +359,6 @@ static void save_poll(void)
     }
 }
 
-/* Sends M64CMD_STATE_LOAD and leaves the rest to the core. */
 static int start_load(int slot)
 {
     state_info si;
@@ -393,8 +376,8 @@ static int start_load(int slot)
     set_slot(slot);
     if (si.pj64 && states_pj_path(slot, path, sizeof(path)) == 0)
     {
-        /* the slot's newest state is a Project64 one: the core's slot load would prefer an existing .st, so ask
-         * for the file itself (it detects the format from the file) */
+        /* the slot's newest state is a Project64 one, but the core's slot load would prefer an existing .st: ask for
+         * the file itself (the format is detected from the file) */
         DebugMessage(M64MSG_INFO, "loading the Project64 state '%s'", path);
         r = (*CoreDoCommand)(M64CMD_STATE_LOAD, 0, path);
     }
@@ -410,7 +393,6 @@ static int start_load(int slot)
     return 0;
 }
 
-/* Quit, saving the auto slot first if that is enabled.  The game keeps running until the file is written. */
 static void begin_quit(void)
 {
     if (l_quitting)
@@ -431,8 +413,6 @@ static void begin_quit(void)
     }
     emu_stop();
 }
-
-/* ---- hotkeys --------------------------------------------------------------------------------- */
 
 typedef enum { HK_MENU, HK_SAVE, HK_LOAD, HK_NEXT, HK_PREV, HK_FF, HK_QUIT, HK_RECOVERY, HK_NUM } hk_id;
 
@@ -475,7 +455,6 @@ static void do_quick_load(void)
     start_load(cur_slot());
 }
 
-/* Evaluates the combos for one frame.  Returns 1 if the menu should open. */
 static int hotkeys_update(uint32_t held, uint32_t prev, uint32_t now)
 {
     int complete[HK_NUM], was[HK_NUM], fire[HK_NUM], i, j, open = 0;
@@ -555,8 +534,6 @@ static int hotkeys_update(uint32_t held, uint32_t prev, uint32_t now)
     return open;
 }
 
-/* ---- the menu loop -------------------------------------------------------------------------- */
-
 /* the menu combo, or the recovery combo that always works whatever the menu combo was set to */
 static int combo_edge(uint32_t held, uint32_t prev)
 {
@@ -573,7 +550,6 @@ static void drain_sdl_events(int *quit)
             *quit = 1;
 }
 
-/* returns 1 if the menu ran (and the frame was presented here), 0 if it couldn't open */
 static int run_menu(void)
 {
     int w = 0, h = 0;
@@ -588,7 +564,7 @@ static int run_menu(void)
     if (w <= 0 || h <= 0)
         return 0;
 
-    /* 1. freeze: copy the frame that is about to be presented (game context is current) */
+    /* freeze: copy the frame about to be presented (game context is current) */
     t_capture = SDL_GetTicks();
     if (ugl_capture_frame(w, h) != 0)
     {
@@ -597,7 +573,7 @@ static int run_menu(void)
     }
     t_capture = SDL_GetTicks() - t_capture;
 
-    /* 2. pause the core (state bookkeeping + any threaded plugin), then become the menu thread */
+    /* pause the core (state bookkeeping + any threaded plugin), then become the menu thread */
     ff_set(0);
     toast_clear();
     quitarm_reset(&l_quit_arm);
@@ -626,7 +602,6 @@ static int run_menu(void)
     loop_prev = pad_poll();
     pad_tracker_reset(&tr, loop_prev);
 
-    /* 3. the menu loop: we own the window and the (private) GL context until it ends */
     t_frame = SDL_GetTicks();
     while (!quit && emu_state() != M64EMU_STOPPED)
     {
@@ -686,11 +661,10 @@ static int run_menu(void)
     }
     pad_inject(0);
     toast_set_menu_open(0);                          /* what menu_closing() has to say floats over the game again */
-    menu_closing();                                  /* reverts unconfirmed combo changes, writes pending config */
+    menu_closing();
 
-    /* 4. leaving: show one clean (undimmed) frame so the game doesn't resume over a menu.  The buttons that
-     *    closed the menu are hidden from the game by the input filter until they are released; if the filter
-     *    is off, keep the frame up until they are. */
+    /* show one clean (undimmed) frame so the game doesn't resume over a menu; the input filter hides the closing
+     * buttons until released; if it is off, keep the frame up until they are */
     {
         uint32_t t0 = SDL_GetTicks();
         int wait_release = !(g_cfg.block_game_input);
@@ -716,14 +690,13 @@ static int run_menu(void)
         video_leave_ui();
     SDL_AtomicSet(&l_menu_open, 0);
 
-    /* 5. act on the choice.  Everything below is issued while the core is still paused; the core runs it from
-     *    its own interrupt handler once it executes again. */
+    /* issued while the core is still paused; it runs them from its interrupt handler once it executes again */
     if (result == MENU_NONE || result == MENU_RESUME || result == MENU_RESET || result == MENU_RESET_SOFT ||
         result == MENU_SAVE_STATE || result == MENU_LOAD_STATE)
     {
         int sel = menu_selected_slot();
         if (sel >= 0)
-            set_slot(sel);               /* the carousel's slot becomes the quick-save slot */
+            set_slot(sel);
     }
     if (quit)
     {
@@ -761,9 +734,6 @@ static int run_menu(void)
     return 1;
 }
 
-/* ---- per-frame hook -------------------------------------------------------------------------- */
-
-/* test hook (debug script "pjsave:N" / "pjzip:N"): the core writes a Project64 state to slot N's .pjN file */
 static void debug_save_pj(int slot, int zip)
 {
     char path[PATH_MAX];

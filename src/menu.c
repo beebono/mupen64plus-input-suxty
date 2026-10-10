@@ -38,25 +38,24 @@
 
 #define MAX_DEPTH 10
 static menu_page l_stack[MAX_DEPTH];
-static int       l_focus_stack[MAX_DEPTH];     /* the focus of each page below the top one */
-static int       l_scroll_stack[MAX_DEPTH];    /* ... and its scroll position */
+static int       l_focus_stack[MAX_DEPTH];
+static int       l_scroll_stack[MAX_DEPTH];
 static int       l_depth;
 static char      l_game[32];
 static int       l_quit_saves;
 
-/* the slot the Save / Load / In Slot controls act on, and the cards of the Save States carousel */
 static int        l_sel;                       /* 0-9 numbered slots, 10 = auto */
 static int        l_action_slot;
 static ui_card    l_cards[STATES_NUM_ENTRIES];
 static state_info l_info[STATES_NUM_ENTRIES];
-static char       l_msg[64];                   /* the main page's and the Save States page's message line */
+static char       l_msg[64];
 static int        l_msg_kind;
-static int        l_msg_focus;                 /* the focus it was set at: it goes when the focus moves */
-static char       l_set_msg[96];               /* the Settings page's status line */
+static int        l_msg_focus;
+static char       l_set_msg[96];
 static int        l_set_msg_kind;
 static int        l_set_msg_focus;
 
-#define MAIN_FOCUS_RESUME 3                    /* the main page opens on Resume */
+#define MAIN_FOCUS_RESUME 3
 
 void menu_set_game_name(const char *name)
 {
@@ -74,8 +73,7 @@ void menu_set_quit_saves(int saves) { l_quit_saves = saves; }
 int  menu_action_slot(void)         { return l_action_slot; }
 int  menu_selected_slot(void)       { return l_sel >= STATES_NUM_SLOTS ? -1 : l_sel; }
 
-/* a new page starts with the first row focused (confirm pages list "No" first, so it is the default); going
- * back returns to the row you came from */
+/* confirm pages list "No" first, so it is the default */
 void menu_push(menu_page p)
 {
     if (l_depth < MAX_DEPTH)
@@ -115,7 +113,6 @@ static void set_settings_msg(const char *msg, int kind)
     l_set_msg_focus = ui_focus_get();
 }
 
-/* A confirm dialog's "No" and "Yes", side by side: Yes returns 1, No goes back. */
 int menu_yes_no(void)
 {
     int no, yes;
@@ -166,8 +163,6 @@ void menu_open(int current_slot)
     ui_focus_set(MAIN_FOCUS_RESUME);
 }
 
-/* ---- the scope: titles, markers, what the status line says ----------------------------------------- */
-
 const char *menu_scoped_title(char *buf, size_t size, const char *base)
 {
     snprintf(buf, size, "%s%s", base, g_cfg.scope == CFG_SCOPE_GAME ? " (Game)" : "");
@@ -179,7 +174,6 @@ int menu_mark_kind(int overridden)
     return overridden ? (g_cfg.scope == CFG_SCOPE_GAME ? 1 : 2) : 0;
 }
 
-/* the one place the markers are explained: when a marked row has the focus */
 const char *menu_scope_status(void)
 {
     switch (ui_focus_mark())
@@ -190,9 +184,6 @@ const char *menu_scope_status(void)
     }
 }
 
-/* ---- main ---------------------------------------------------------------------------------------------- */
-
-/* "Empty", or "10-09 18:42" (the year is in the carousel) */
 static void slot_info(int slot, char *out, size_t size)
 {
     const ui_card *c = &l_cards[slot];
@@ -242,7 +233,7 @@ static menu_result page_main(void)
     {
         set_msg("", 0);
         push(PAGE_STATES);
-        ui_focus_set(1);                            /* the carousel is the first row: start on Save */
+        ui_focus_set(1);                            /* row 0 is the carousel: start on Save */
     }
     else if (dir != 0)
     {
@@ -258,8 +249,6 @@ static menu_result page_main(void)
     ui_panel_end_k(l_msg[0] ? l_msg : "A Select   B Resume", l_msg_kind);
     return r;
 }
-
-/* ---- Save States ------------------------------------------------------------------------------------------ */
 
 static menu_result page_states(uint32_t pressed)
 {
@@ -296,7 +285,7 @@ static menu_result page_states(uint32_t pressed)
         else
             r = MENU_SAVE_STATE;
     }
-    /* the auto-save is loaded by the launcher at the next start (--savestate), not by the menu */
+    /* the launcher loads the auto-save (--savestate), not the menu */
     act = ui_button_dis("Load", is_auto || !exists);
     if (act < 0)
         set_msg(is_auto ? "The auto-save is loaded by your launcher" : "Nothing saved here yet", 0);
@@ -314,9 +303,6 @@ static menu_result page_states(uint32_t pressed)
     return r;
 }
 
-/* ---- Settings ---------------------------------------------------------------------------------------------- */
-
-/* options for the "choose one" rows: a value table plus how to show it */
 typedef struct {
     const char *const *names;
     const int         *vals;
@@ -328,9 +314,7 @@ static const int         l_ff_speed_vals[]  = { 150, 200, 300, 400, 500, 0 };
 static const choice_set  l_ff_speed = { l_ff_speed_names, l_ff_speed_vals, 6 };
 static const char *const l_ff_mode_names[] = { "Hold", "Toggle" };
 
-/* A row choosing one of `set`'s values for ini [section] key, as the edit scope sees it.  A value that is not in the
- * table (edited by hand in suxty.cfg) is shown as it is, as an extra last option, until the user picks another one.
- * Returns 1 on change. */
+/* a value not in the table (hand-edited) is shown as an extra last option until another is picked */
 static int settings_choice(const char *label, const choice_set *set, const char *suffix, const char *section, const char *key, int def)
 {
     const char *names[8];
@@ -359,7 +343,6 @@ static int settings_choice(const char *label, const choice_set *set, const char 
     return changed;
 }
 
-/* after a settings row: the "this game has its own value" marker, and X = reset to global */
 static void settings_row_end(const char *section, const char *key)
 {
     int over = cfg_overridden(section, key);
@@ -368,8 +351,7 @@ static void settings_row_end(const char *section, const char *key)
         cfg_reset(section, key);
 }
 
-/* the Volume row: shown only when the core can report the volume; X goes back to the audio plugin's own default (all games) or to
- * the global volume (this game) */
+/* X goes back to the audio plugin's default (all games) or the global volume (this game) */
 static void settings_volume(void)
 {
     int ov = cfg_overridden("audio", "volume");
@@ -407,7 +389,6 @@ static void settings_volume(void)
     }
 }
 
-/* "Save Game Profile": every per-game-capable setting in force becomes this game's own */
 static void save_game_profile(void)
 {
     char t[64];
@@ -437,8 +418,8 @@ static void page_settings(void)
     int sc = game;
 
     if (l_set_msg[0] && ui_focus_get() != l_set_msg_focus)
-        set_settings_msg("", 0);                  /* a message belongs to the row it was made on */
-    /* the same rows, in the same order, in both scopes (the cursor never moves under you when "Apply To" changes) */
+        set_settings_msg("", 0);
+    /* same rows in both scopes, so the cursor doesn't move when "Apply To" changes */
     rows = 1 + foir + 1 + vol + 4 + 2 + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
     ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Settings"), rows, 1);
     if (ui_item("Controls", ">") == 1)
@@ -476,7 +457,7 @@ static void page_settings(void)
     dim_id = id;
     if (game)
     {
-        /* the look of the menu itself is not a per-game matter: the global values, in place, dimmed */
+        /* the menu's look is not per-game: global values, dimmed */
         ui_slider_locked("Dim", dim, "%");
         ui_toggle_locked("Notices", toasts);
     }
@@ -489,7 +470,6 @@ static void page_settings(void)
     }
     id += 2;
     apply_id = id++;
-    /* where the changes made in the Controls / FOIR Options / Settings pages are saved */
     if (ui_choice("Apply To", &sc, scopes, have_game ? 2 : 1))
     {
         cfg_set_scope(sc ? CFG_SCOPE_GAME : CFG_SCOPE_GLOBAL);
@@ -536,15 +516,13 @@ static void page_confirm_profile_reset(void)
         cfg_reset_all_game();
         cfg_save();
         remap_flush();
-        fif_reapply_all();                /* foir's live options go back to the global values */
+        fif_reapply_all();
         audio_apply_volume();
         pop();
         set_settings_msg("This game uses the global settings", 1);      /* after the pop: the message belongs to the row we land on */
     }
     ui_panel_end("A Select   B Back");
 }
-
-/* ---- Reset, Quit and the Save States dialogs --------------------------------------------------------------- */
 
 static menu_result page_reset(void)
 {
@@ -560,7 +538,6 @@ static menu_result page_reset(void)
     return r;
 }
 
-/* question, an optional note under it, No / Yes: 1 on Yes */
 static int page_confirm(const char *title, const char *question, const char *note)
 {
     int yes;
@@ -579,7 +556,6 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
     menu_result r = MENU_NONE;
     menu_page page = l_stack[l_depth - 1];
 
-    /* B goes back one page; on the top page it resumes the game */
     int back = (pressed & PADBIT(PAD_B)) != 0;
 
     ui_begin(w, h, pressed);
@@ -594,7 +570,7 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
         {
             char q[40];
             snprintf(q, sizeof(q), "Overwrite slot %d?", l_action_slot);
-            /* a slot that only has a Project64 state is saved as a Mupen64Plus .st; the .pj file is left alone */
+            /* a Project64-only slot is saved as a Mupen64Plus .st; the .pj file is left alone */
             if (page_confirm("Confirm", q, l_info[l_action_slot].pj64 ? "(PJ64 state)" : NULL))
                 r = MENU_SAVE_STATE;
             else if (back)

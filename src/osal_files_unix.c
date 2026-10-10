@@ -19,11 +19,8 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* This implements all kinds of system-dependent file handling
- *
- */
 
-#include <dirent.h>  // for opendir(), readdir(), closedir()
+#include <dirent.h>
 #include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +34,6 @@
 #include "osal_files.h"
 #include "osal_preproc.h"
 
-/* definitions for system directories to search when looking for mupen64plus plugins */
 #if defined(PLUGINDIR)
   const int   osal_libsearchdirs = 5;
   const char *osal_libsearchpath[5] = { PLUGINDIR, "/usr/local/lib/mupen64plus",  "/usr/lib/mupen64plus", "/usr/lib64/mupen64plus/", "./" };
@@ -62,14 +58,12 @@ osal_lib_search *osal_library_search(const char *searchpath)
     if (dir == NULL)
         return NULL;
 
-    /* look for any shared libraries in this folder */
     while ((entry = readdir(dir)) != NULL)
     {
         osal_lib_search *newlib = NULL;
         if (strlen(entry->d_name) < strlen(suffix) ||
             strcmp(entry->d_name + strlen(entry->d_name) - strlen(suffix), suffix) != 0)
             continue;
-        /* this is a .so file, so add it to the list */
         newlib = malloc(sizeof(osal_lib_search));
         if (newlib == NULL)
         {
@@ -87,7 +81,6 @@ osal_lib_search *osal_library_search(const char *searchpath)
             curr->next = newlib;
             curr = newlib;
         }
-        /* set up the filepath and filename members */
         strncpy(curr->filepath, searchpath, PATH_MAX-2);
         curr->filepath[PATH_MAX-2] = 0;
         if (curr->filepath[strlen(curr->filepath)-1] != '/')
@@ -96,7 +89,6 @@ osal_lib_search *osal_library_search(const char *searchpath)
         curr->filename = curr->filepath + pathlen;
         strncat(curr->filepath, entry->d_name, PATH_MAX - pathlen - 1);
         curr->filepath[PATH_MAX-1] = 0;
-        /* set plugin_type and next pointer */
         curr->plugin_type = 0;
         curr->next = NULL;
     }
@@ -114,7 +106,6 @@ void osal_free_lib_list(osal_lib_search *head)
         head = next;
     }
 }
-
 
 int osal_mkdir_p(const char *path)
 {

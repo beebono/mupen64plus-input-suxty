@@ -1,18 +1,11 @@
-/* vpad: a scripted virtual gamepad (Linux uinput) for testing suxty on a rig where nobody can press buttons.
- *
- *   vpad "<ms>:<button>:<0|1>,<ms>:<axis>:<value>,..."   (times are from the moment the device exists)
- *   buttons: a b x y l r select start up down left right
- *   axes (only with VPAD_AXES=1): lx ly rx ry (-32768..32767), lt rt (triggers, -32768 = released .. 32767)
- *
- * The device exposes BTN_SOUTH/EAST/NORTH/WEST/TL/TR/SELECT/START plus a D-pad hat, so SDL numbers the
- * buttons 0..7 as A B X Y L R Select Start - exactly suxty's fallback layout for unmapped pads.
- * VPAD_NAME=<name> changes the device name (default "suxty vpad"), to run two of them.
- * With VPAD_AXES=1 it also has the axes ABS_X/Y (left stick), ABS_RX/RY (right stick) and ABS_Z/RZ (triggers),
- * which makes SDL build a game controller mapping for it (the "mapped pad" case; without them it is the
- * "unmapped pad" case).
- * Cross-build:  aarch64-linux-gnu-gcc -O2 -o vpad tools/vpad.c
- * GPLv2+, like the rest of the project.
- */
+/* vpad: scripted virtual gamepad (uinput) for rigs where nobody can press buttons. GPLv2+, like the rest of the
+ * project.
+ * vpad "<ms>:<button>:<0|1>,<ms>:<axis>:<value>,..."   (ms from the device's creation)
+ * buttons: a b x y l r select start up down left right; axes (VPAD_AXES=1): lx ly rx ry, lt rt (-32768 = released)
+ * The buttons are BTN_SOUTH/EAST/NORTH/WEST/TL/TR/SELECT/START plus a D-pad hat: suxty's fallback layout for unmapped
+ * pads.
+ * VPAD_AXES=1 adds axes so SDL builds a controller mapping (the "mapped pad" case). VPAD_NAME=<name> renames the
+ * device. */
 #include <errno.h>
 #include <sys/ioctl.h>
 #include <fcntl.h>

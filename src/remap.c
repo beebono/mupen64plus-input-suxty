@@ -31,12 +31,10 @@
 #include "main.h"
 #include "remap.h"
 
-/* See remap.h for the design.  Everything here runs on the emulation thread (the menu and GetKeys both do), so there
- * are no locks. */
+/* everything here runs on the emulation thread (menu and GetKeys), so no locks */
 
-/* A pad model's mapping, found by the pad's SDL name (so it follows the pad when players are swapped).  Two layers
- * (M4): `glob` is the one in suxty.cfg, `game` the one in the game's file (valid when has_game).  What the game
- * plays with is `game` if there is one, else `glob`; the menu edits the layer of the current scope (g_cfg.scope). */
+/* keyed by the pad's SDL name, so it follows the pad when players are swapped. `game` wins over `glob`; the menu
+ * edits the layer of g_cfg.scope */
 typedef struct {
     char   name[64];
     padmap glob;
@@ -46,14 +44,14 @@ typedef struct {
 } mapslot;
 
 typedef struct {
-    padmap       *map;            /* this player's pad's EFFECTIVE mapping (into l_maps), or &l_scratch with no pad */
-    char          want[64];       /* EFFECTIVE choice: "" = auto, "none", or the name of a pad */
-    char          want_g[64];     /* the global choice */
-    char          want_game[64];  /* the game's choice, valid if has_want_game */
+    padmap       *map;            /* this player's pad's EFFECTIVE mapping, or &l_scratch with no pad */
+    char          want[64];       /* EFFECTIVE choice: "" = auto, "none", or a pad name */
+    char          want_g[64];
+    char          want_game[64];
     int           has_want_game;
-    int           src_pad;        /* pad.c index of the pad that feeds this player, -1 = none */
-    int           gsrc_pad;       /* ... and the one the GLOBAL choices would give (what mupen64plus.cfg describes) */
-    int           live;           /* this player was reported as present to the core at launch (a pad added later is only used from the next launch) */
+    int           src_pad;
+    int           gsrc_pad;       /* the one the GLOBAL choices would give (what mupen64plus.cfg describes) */
+    int           live;           /* reported as present to the core at launch: a pad added later is only used from the next launch */
     n64_state     st;
 } rplayer;
 
@@ -62,12 +60,10 @@ static mapslot  l_maps[PAD_MAX_PADS];
 static int      l_nmaps;
 static padmap   l_scratch;           /* what the menu edits for a player without a pad (never stored) */
 static int      l_enabled;
-static int      l_launched;          /* remap_prepare_launch() ran: the players are fixed */
-static int      l_gen;               /* pad_generation() the assignment was made for */
+static int      l_launched;
+static int      l_gen;
 
 int remap_enabled(void) { return l_enabled; }
-
-/* ---- physical state, as seen through the input filter ----------------------------------------- */
 
 static int io_button(void *c, int i)    { return inputfilter_phys_button((SDL_Joystick *) c, i); }
 static int io_hat(void *c, int i)       { return inputfilter_phys_hat((SDL_Joystick *) c, i); }
@@ -83,9 +79,6 @@ static void make_io(padmap_io *io, SDL_Joystick *js)
     io->ctx = js;
 }
 
-/* ---- pad assignment ----------------------------------------------------------------------------- */
-
-/* explicit choices first, then the unassigned players take the remaining pads in order */
 static void assign_pads(int src[REMAP_PLAYERS], const char *want[REMAP_PLAYERS])
 {
     int used[PAD_MAX_PADS] = { 0 };
@@ -122,8 +115,6 @@ static void assign_pads(int src[REMAP_PLAYERS], const char *want[REMAP_PLAYERS])
     }
 }
 
-/* the mapping slot of the pad model `pad` (a pad.c index): both layers loaded from suxty.cfg / the game file, or the
- * default mapping; NULL for no pad */
 static mapslot *slot_for_pad(int pad)
 {
     pad_layout lay;
@@ -153,7 +144,6 @@ static mapslot *slot_for_pad(int pad)
     }
     if (g_cfg.game != NULL && ini_has_section(g_cfg.game, sec))
     {
-        /* the game file may override single keys: they win over the global ones */
         s->game = s->glob;
         padmap_load(&s->game, g_cfg.ini, g_cfg.game, sec);
         s->has_game = 1;
@@ -230,8 +220,6 @@ void remap_shutdown(void)
     l_launched = 0;
 }
 
-/* ---- evaluation (GetKeys) -------------------------------------------------------------------- */
-
 void remap_update(void)
 {
     int p;
@@ -239,7 +227,7 @@ void remap_update(void)
         return;
     if (pad_generation() != l_gen)
     {
-        l_gen = pad_generation();             /* hot-plug: who is player 1 now? */
+        l_gen = pad_generation();
         reassign();
     }
     for (p = 0; p < REMAP_PLAYERS; p++)
@@ -259,7 +247,6 @@ void remap_update(void)
     }
 }
 
-/* GetKeys: the N64 state of player p as of the last remap_update(); 0 if the player has no pad */
 int remap_player_state(int p, n64_state *out)
 {
     memset(out, 0, sizeof(*out));
@@ -269,7 +256,7 @@ int remap_player_state(int p, n64_state *out)
     return 1;
 }
 
-static int       l_probe_on;          /* debug script "probe:": a made-up state for the Test controller page */
+static int       l_probe_on;
 static n64_state l_probe;
 
 void remap_set_probe_override(int on, const n64_state *st)
@@ -299,10 +286,8 @@ void remap_probe(int p, n64_state *out)
     inputfilter_bypass(0);
 }
 
-/* ---- launch ------------------------------------------------------------------------------------- */
-
-/* Decides who plays (InitiateControllers): the players that have a pad now.  A pad connected later is used by the menu
- * and by the mapping of an existing player, but the core is told about the players only once. */
+/* a pad connected later is used by the menu and by an existing player's mapping, but the core is told about the
+ * players only once */
 void remap_prepare_launch(void)
 {
     int p, assigned = 0;
@@ -331,10 +316,6 @@ void remap_finish(void)
     l_launched = 0;
 }
 
-/* ---- menu API ------------------------------------------------------------------------------------- */
-
-/* The menu works on one layer at a time (g_cfg.scope): the global mapping/choices, or the game's.  What the game plays
- * with is the effective layer (game wins), updated by remap_commit(). */
 static int scope_game(void)
 {
     return g_cfg.scope == CFG_SCOPE_GAME && g_cfg.game != NULL;
@@ -391,7 +372,6 @@ static void refresh_effective(void)
         l_pl[p].map = effective_map(slot_for_pad(l_pl[p].src_pad));
 }
 
-/* persist the player's pad's mapping and the player choices, into the layer of the scope */
 void remap_commit(int p)
 {
     int i;
@@ -443,7 +423,6 @@ int remap_set_pad(int p, const char *want)
     return l_pl[p].live || !l_launched;
 }
 
-/* "Reset to global" for the controllers of this game: the player choices and every pad's mapping in the game file */
 int remap_reset_game(void)
 {
     int p, i, n = 0;
@@ -471,8 +450,6 @@ int remap_reset_game(void)
     return n;
 }
 
-/* "Reset to default mapping": the buttons of the pad's default layout (the stick settings and the rest of the pad's
- * choices are kept by padmap_default) */
 int remap_default_mapping(int p, char *msg, size_t msgsize)
 {
     pad_layout lay;
@@ -486,8 +463,6 @@ int remap_default_mapping(int p, char *msg, size_t msgsize)
     return 0;
 }
 
-/* "Save Game Profile": what is in force for every pad model seen and every player becomes this game's own value.
- * Returns the number of mappings and player choices written. */
 int remap_pin_game(void)
 {
     int i, p, n = 0;

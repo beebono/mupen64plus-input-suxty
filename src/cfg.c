@@ -78,17 +78,11 @@ static const char *l_game_header =
     "# [hotkeys] [states] [input] [menu] [audio] [foir]   the same keys as suxty.cfg (volume = 0-100 is in [audio])\n"
     "# [players], [pad:<pad name>]                 controller choice / N64 mapping of one pad model";
 
-/* Keys and sections of earlier versions (the front-end build, and the menu before the refinement pass) that no longer mean
- * anything.  They are dropped when a file is loaded, so an old suxty.cfg / game file loads without complaint.
- * (show_hints: hints are always on now.  quit_hold_ms becomes confirm_quit, see migrate().) */
 static const char *const l_obsolete_keys[][2] = {
     { "input", "remap_input" },
     { "menu", "show_hints" }
 };
 
-/* Settings that changed meaning: "Quit hold" (how long the quit combo is held) became "Confirm Quit" (press it twice), a hold of
- * 0 ("Instant") being off and any other being on; the pad sections' modifier layer became the C-Face shift (padmap.c).  The
- * game files are the same, key by key. */
 static int migrate(ini_t *ini)
 {
     int n = 0;
@@ -114,9 +108,9 @@ static int prune_obsolete(ini_t *ini)
         return 0;
     for (i = 0; i < sizeof(l_obsolete_keys) / sizeof(l_obsolete_keys[0]); i++)
         n += ini_remove(ini, l_obsolete_keys[i][0], l_obsolete_keys[i][1]);
-    n += ini_remove_section(ini, "plugins");                     /* per-game plugin choice: the front-end owns that now */
+    n += ini_remove_section(ini, "plugins");
     n += ini_remove_section(ini, "UI-Suxty");
-    for (;;)                                                     /* [cfg:...]: per-game core / plugin parameters */
+    for (;;)
     {
         int found = 0, j;
         for (j = 0; ini_entry(ini, j, &sec, &key, NULL); j++)
@@ -168,8 +162,6 @@ int cfg_init(const char *config_dir)
         migrate(g_cfg.ini);
         if (ini_has(g_cfg.ini, "general", "version") && ini_get_int(g_cfg.ini, "general", "version", 1) < CFG_VERSION)
         {
-            /* the front-end build saved the auto slot on every quit, for --resume; now it blocks Quit until the save
-             * is written and is off unless asked for */
             removed += ini_remove(g_cfg.ini, "states", "autosave_on_quit");
             ini_set_int(g_cfg.ini, "general", "version", CFG_VERSION);
         }
@@ -204,8 +196,6 @@ int cfg_init(const char *config_dir)
     return 0;
 }
 
-/* "hotkey+r" -> mask; the word "hotkey" is replaced by the configured hotkey button.  Empty/"none" = 0.
- * Returns 0 and warns on a syntax error. */
 static uint32_t parse_combo(const char *str, uint32_t hotkey, const char *key)
 {
     char buf[96], out[160];
@@ -247,7 +237,6 @@ void cfg_apply(void)
         DebugMessage(M64MSG_WARNING, "invalid hotkey_button in suxty.cfg; using select");
         g_cfg.hotkey_button = pad_parse_combo("select");
     }
-    /* the menu combo may use the word "hotkey" too */
     g_cfg.menu_combo = parse_combo(combo, g_cfg.hotkey_button, "menu_combo");
     if (g_cfg.menu_combo == 0)
     {
@@ -282,7 +271,7 @@ void cfg_apply(void)
         char *end = NULL;
         double t = strtod(txt, &end);
         if (end == txt || *end != 0)
-            t = 0.5;                                                /* not a number: the default */
+            t = 0.5;
         g_cfg.soft_tilt_pct = t <= 0.0 ? 0 : t >= 1.0 ? 100 : (int) (t * 100.0 + 0.5);
     }
     g_cfg.block_game_input = cfg_get_bool("input", "block_game_input", 1);
@@ -301,7 +290,7 @@ void cfg_apply(void)
         uint32_t all = g_cfg.menu_combo | g_cfg.recovery_combo | g_cfg.hk_quick_save | g_cfg.hk_quick_load | g_cfg.hk_next_slot |
                        g_cfg.hk_prev_slot | g_cfg.hk_fast_forward | g_cfg.hk_quit;
         uint32_t hot = g_cfg.hotkey_button;
-        /* the filter works on physical buttons: undo the A/B swap that pad_poll applies for the user */
+        /* filter works on physical buttons: undo the A/B swap pad_poll applies */
         if (g_cfg.swap_ab)
         {
             all = pad_swap_ab_mask(all);
@@ -327,7 +316,6 @@ int cfg_save(void)
     {
         if (ini_count(g_cfg.game) == 0)
         {
-            /* no overrides left: the game goes back to being plain global (the file would only be a header) */
             if (remove(g_cfg.game_path) != 0 && osal_file_exists(g_cfg.game_path))
                 rc = -1;
             ini_clean(g_cfg.game);
@@ -349,8 +337,6 @@ void cfg_shutdown(void)
     ini_free(g_cfg.game);
     g_cfg.game = NULL;
 }
-
-/* ---- the game layer ---------------------------------------------------------------------------- */
 
 int cfg_load_game(const char *md5)
 {
@@ -408,7 +394,6 @@ int cfg_game_override_count(void)
     return g_cfg.game != NULL ? ini_count(g_cfg.game) : 0;
 }
 
-/* what the user would call a setting: every key, except that a pad's whole mapping and the player choices are one each */
 int cfg_game_setting_count(void)
 {
     const char *sec, *key;
@@ -443,8 +428,7 @@ int cfg_game_setting_count(void)
     return n;
 }
 
-/* the settings "Save Game Profile" pins (the hotkey button and the menu combo stay with the global layer: they are how you
- * get into this menu) */
+/* hotkey button and menu combo stay global: they are how you get into this menu */
 static const char *const l_profile_keys[][2] = {
     { "states", "autosave_on_quit" },
     { "hotkeys", "quick_save" }, { "hotkeys", "quick_load" }, { "hotkeys", "next_slot" }, { "hotkeys", "prev_slot" },
@@ -580,9 +564,6 @@ int cfg_reset_all_game(void)
     return n;
 }
 
-/* ---- combo helpers ---------------------------------------------------------------------------- */
-
-/* the hotkey button of the layer the menu is editing */
 static uint32_t scoped_hotkey(void)
 {
     uint32_t h = pad_parse_combo(cfg_get_scoped("hotkeys", "hotkey_button", "select"));
@@ -612,7 +593,6 @@ void cfg_combo_token_string(uint32_t mask, char *out, size_t size)
 
 void cfg_combo_display(uint32_t mask, char *out, size_t size)
 {
-    /* hotkey button first, then Select, then the rest in button order: "Select+R", "Select+Start" */
     uint32_t first = 0, sel = PADBIT(PAD_SELECT);
     uint32_t order[PAD_NUM];
     int n = 0, i;

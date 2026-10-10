@@ -18,13 +18,8 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* "Confirm Quit": the quit hotkey must be pressed twice within a couple of seconds.  Pure logic (the caller supplies the clock and
- * shows the notice), so it can be unit-tested (tools/test_quitarm.c).
- *
- *   confirm off   every press quits.
- *   confirm on    the first press arms (the caller shows "press again to quit"), a second *press* (a new edge, not the combo
- *                 still being held) within QUITARM_WINDOW_MS quits; a press after the window arms again.
- */
+/* pure logic: the caller supplies the clock and shows the notice. The second press must be a new edge (not the combo
+ * still held) within QUITARM_WINDOW_MS */
 
 #ifndef QUITARM_H
 #define QUITARM_H
@@ -41,7 +36,6 @@ typedef struct {
 typedef enum { QUITARM_NONE, QUITARM_ARMED, QUITARM_QUIT } quitarm_result;
 
 void           quitarm_reset(quitarm_t *q);
-/* the quit combo was pressed (once per press) at `now_ms` */
 quitarm_result quitarm_press(quitarm_t *q, int confirm, uint32_t now_ms);
 
 #endif /* QUITARM_H */

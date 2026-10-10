@@ -30,7 +30,6 @@
 #include "m64p_types.h"
 #include "main.h"
 
-/* ---- minimal GL type / enum definitions (so no GLES headers are needed) ---- */
 typedef unsigned int  GLenum;
 typedef unsigned int  GLuint;
 typedef int           GLint;
@@ -125,7 +124,6 @@ typedef unsigned char GLubyte_;
 GLAPI_FUNCS(X)
 #undef X
 
-/* ---- renderer state ---- */
 typedef struct {
     float   x, y, u, v;
     uint8_t r, g, b, a;
@@ -148,7 +146,6 @@ static int      l_cap_w, l_cap_h;
 static uint8_t *l_rb_buf;
 static size_t   l_rb_size;
 
-/* ---- loading ---- */
 int ugl_load_functions(void)
 {
     int missing = 0;
@@ -164,7 +161,7 @@ int ugl_load_functions(void)
     l_have_pbo_enum = 1;
     if (ver != NULL && strncmp(ver, "OpenGL ES ", 10) == 0)
     {
-        /* "OpenGL ES 2.0 ..." has no PBOs; ES 3.x does */
+        /* ES 2.0 has no PBOs; ES 3.x does */
         l_have_pbo_enum = (ver[10] >= '3');
     }
     DebugMessage(M64MSG_VERBOSE, "GL version string: %s", ver ? ver : "(null)");
@@ -259,7 +256,6 @@ int ugl_init_resources(void)
     l_loc_inv = p_glGetUniformLocation(l_prog, "u_inv");
     l_loc_tex = p_glGetUniformLocation(l_prog, "u_tex");
 
-    /* font atlas: white RGB, glyph coverage in alpha */
     rgba = (uint8_t *) malloc(FONT_ATLAS_W * FONT_ATLAS_H * 4);
     if (rgba == NULL)
         return -1;
@@ -296,7 +292,6 @@ void ugl_shutdown_resources(void)
     free(l_rb_buf);  l_rb_buf = NULL; l_rb_size = 0;
 }
 
-/* ---- capturing the game frame (runs in the GAME context; must not disturb it) ---- */
 int ugl_capture_frame(int w, int h)
 {
     GLint fbo = 0, pbo = 0;
@@ -314,8 +309,8 @@ int ugl_capture_frame(int w, int h)
         l_cap_h = h;
     }
 
-    /* the video plugin may have an FBO and/or a pixel-pack buffer bound; neither may redirect our read,
-     * and both bindings have to be put back exactly as they were */
+    /* the plugin may have an FBO / pixel-pack buffer bound: neither may redirect our read, and both are restored
+     * exactly */
     p_glGetIntegerv(GL_FRAMEBUFFER_BINDING, &fbo);
     if (l_have_pbo_enum)
         p_glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &pbo);
@@ -354,7 +349,6 @@ const uint8_t *ugl_capture_data(int *w, int *h)
     return l_cap_buf;
 }
 
-/* ---- overlay-context drawing ---- */
 void ugl_background_upload(void)
 {
     if (l_cap_buf == NULL)
@@ -458,14 +452,13 @@ void ugl_background_draw(int w, int h, float brightness)
     if (brightness > 1.f) brightness = 1.f;
     c = (uint8_t) (brightness * 255.f + 0.5f);
     bind_tex(l_bg_tex);
-    /* captured data is bottom-up, which is exactly GL's texture orientation: v=0 is the screen bottom */
+    /* captured data is bottom-up, which is GL's texture orientation (v=0 is the screen bottom) */
     quad(0.f, 0.f, (float) w, (float) h, 0.f, 1.f, 1.f, 0.f, UGL_RGBA(c, c, c, 255));
     bind_tex(l_atlas_tex);
 }
 
 void ugl_rect(int x, int y, int w, int h, uint32_t rgba)
 {
-    /* sample the middle of the solid cell */
     float cu = ((FONT_SOLID_CELL % FONT_ATLAS_COLS) * FONT_GLYPH_W + FONT_GLYPH_W / 2) / (float) FONT_ATLAS_W;
     float cv = ((FONT_SOLID_CELL / FONT_ATLAS_COLS) * FONT_GLYPH_H + FONT_GLYPH_H / 2) / (float) FONT_ATLAS_H;
     bind_tex(l_atlas_tex);

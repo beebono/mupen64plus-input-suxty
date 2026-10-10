@@ -1,7 +1,5 @@
-/* A stand-in for mupen64plus-rdp-foir's suxty interface (src/foir_suxty.h), for test_foir_if: three options, one of each
- * kind, and counters.  GPLv2+, like the rest of the project.
- *
- *   gcc -shared -fPIC -I../src -o fake_foir.so fake_foir.c */
+/* stand-in for foir's suxty interface (src/foir_suxty.h) for test_foir_if. GPLv2+, like the rest of the project.
+ * gcc -shared -fPIC -I../src -o fake_foir.so fake_foir.c */
 #include <string.h>
 
 #include "foir_suxty.h"
@@ -52,7 +50,6 @@ const struct foir_suxty_interface *FoirSuxtyGetInterface(void)
     return &l_if;
 }
 
-/* test helpers */
 void fake_reset(int w, int m, int l) { l_val[0] = l_staged[0] = w; l_val[1] = l_staged[1] = m; l_val[2] = l_staged[2] = l; l_sets = 0; }
 int  fake_sets(void) { return l_sets; }
 int  fake_staged(int i) { return l_staged[i]; }

@@ -1,9 +1,5 @@
-/* Unit tests for the config layers (src/cfg.c + src/inifile.c): lookups through the game layer, what a game cannot
- * override, writes by scope, "reset to global" (deleting the game entry), saving and re-loading the game file, and an
- * emptied game file being deleted.
- *
- *   make -C projects/unix check          GPLv2+, like the rest of the project.
- */
+/* Unit tests for src/cfg.c + src/inifile.c; run with make -C projects/unix check. GPLv2+, like the rest of the
+ * project. */
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +14,6 @@ static int l_fail, l_checks;
 #define CHECK(cond) do { l_checks++; if (!(cond)) { l_fail++; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #cond); } } while (0)
 #define STREQ(a, b) (strcmp((a), (b)) == 0)
 
-/* the pieces of the front-end cfg.c calls into */
 void DebugMessage(int level, const char *message, ...) { (void) level; (void) message; }
 void toast_set_enabled(int e) { (void) e; }
 void toast_set_duration_ms(int ms) { (void) ms; }
@@ -82,7 +77,6 @@ int main(void)
     CHECK(strcmp(g_cfg.game_path, path) == 0);
     CHECK(cfg_game_override_count() == 0);
 
-    /* global write, then a game override on top */
     CHECK(!cfg_key_overridable("menu", "recovery_combo") && !cfg_key_overridable("menu", "dim_percent") &&
           cfg_key_overridable("hotkeys", "quick_save") && cfg_key_overridable("states", "autosave_on_quit"));
     cfg_set_int("hotkeys", "fast_forward_speed", 400);
@@ -93,13 +87,11 @@ int main(void)
     cfg_set_bool("states", "autosave_on_quit", 0);
     CHECK(g_cfg.ff_speed == 150 && g_cfg.autosave_on_quit == 0);
     CHECK(cfg_overridden("hotkeys", "fast_forward_speed") && cfg_game_override_count() == 2);
-    /* the global layer is untouched */
     CHECK(ini_get_int(g_cfg.ini, "hotkeys", "fast_forward_speed", 0) == 400 && ini_get_bool(g_cfg.ini, "states", "autosave_on_quit", 0) == 1);
-    /* scoped views */
     CHECK(cfg_get_scoped_int("hotkeys", "fast_forward_speed", 0) == 150);
     cfg_set_scope(CFG_SCOPE_GLOBAL);
     CHECK(cfg_get_scoped_int("hotkeys", "fast_forward_speed", 0) == 400);
-    CHECK(cfg_get_int("hotkeys", "fast_forward_speed", 0) == 150);        /* what the game plays with */
+    CHECK(cfg_get_int("hotkeys", "fast_forward_speed", 0) == 150);
     /* a global edit of an overridden key does not change the game */
     cfg_set_int("hotkeys", "fast_forward_speed", 500);
     CHECK(g_cfg.ff_speed == 150 && ini_get_int(g_cfg.ini, "hotkeys", "fast_forward_speed", 0) == 500);
@@ -113,12 +105,10 @@ int main(void)
     CHECK(g_cfg.recovery_combo != 0);
     ini_remove(g_cfg.game, "menu", "recovery_combo");
 
-    /* combos: a game hotkey */
     cfg_set("hotkeys", "quick_save", "hotkey+x");
     CHECK(cfg_overridden("hotkeys", "quick_save") && g_cfg.hk_quick_save != 0 &&
           g_cfg.hk_quick_save == cfg_combo_mask("select+x", g_cfg.hotkey_button));
 
-    /* save, reload, and reset to global */
     CHECK(cfg_save() == 0 && osal_file_exists(g_cfg.game_path));
     CHECK(cfg_load_game(md5) == 0 && cfg_game_override_count() == 3);
     CHECK(g_cfg.ff_speed == 150 && g_cfg.autosave_on_quit == 0);
@@ -126,16 +116,14 @@ int main(void)
     cfg_reset("hotkeys", "fast_forward_speed");
     CHECK(g_cfg.ff_speed == 500 && !cfg_overridden("hotkeys", "fast_forward_speed"));
     CHECK(cfg_reset_all_game() == 2 && g_cfg.autosave_on_quit == 1);
-    CHECK(cfg_save() == 0 && !osal_file_exists(g_cfg.game_path));       /* nothing left: the file goes away */
+    CHECK(cfg_save() == 0 && !osal_file_exists(g_cfg.game_path));
     CHECK(osal_file_exists(g_cfg.cfg_path));
 
-    /* a different ROM has its own, separate layer */
     CHECK(cfg_load_game("0123456789abcdef0123456789abcdef") == 0 && cfg_game_override_count() == 0);
     CHECK(cfg_load_game("xyz") != 0 && !cfg_game_available());
 
     cfg_shutdown();
 
-    /* an suxty.cfg and a game file from the front-end build: removed keys are dropped, the rest is kept, no error */
     {
         char dir2[] = "/tmp/suxty-test-cfg2-XXXXXX", gpath[600];
         FILE *f;
@@ -165,14 +153,13 @@ int main(void)
         CHECK(cfg_game_override_count() == 2 && cfg_get_int("audio", "volume", 0) == 60 && g_cfg.hk_quick_save != 0);
         CHECK(cfg_save() == 0);
         cfg_shutdown();
-        /* what was written no longer has them */
         CHECK(cfg_init(dir2) == 0 && cfg_load_game(md5) == 0 && cfg_game_override_count() == 2 && !ini_has(g_cfg.ini, "input", "remap_input"));
         cfg_shutdown();
     }
 
-    /* the menu refinement pass: hints are always on (show_hints is gone), "Quit hold" became "Confirm Quit" (a hold of 0 = off,
-     * any other = on, an explicit confirm_quit wins), and the pad sections' modifier layer became the C-Face shift - in the
-     * global file and in a game file alike, written back clean */
+    /* migration: show_hints is gone, "Quit hold" became "Confirm Quit" (0 = off, any other = on, an explicit
+     * confirm_quit wins), the pad
+     * sections' modifier layer became the C-Face shift - in the global file and in a game file alike */
     {
         char dir3[] = "/tmp/suxty-test-cfg3-XXXXXX", gpath[600];
         FILE *f;
@@ -205,7 +192,7 @@ int main(void)
         CHECK(!ini_has_section(g_cfg.game, "pad:two"));
         CHECK(cfg_save() == 0);
         cfg_shutdown();
-        CHECK(cfg_init(dir3) == 0 && cfg_load_game(md5) == 0);          /* what was written is clean and stable */
+        CHECK(cfg_init(dir3) == 0 && cfg_load_game(md5) == 0);
         CHECK(g_cfg.confirm_quit == 1 && !ini_has(g_cfg.game, "pad:one", "modifier") && !ini_has(g_cfg.ini, "hotkeys", "quit_hold_ms"));
         /* an explicit Confirm Quit wins over a leftover hold time */
         ini_set(g_cfg.ini, "hotkeys", "confirm_quit", "false");
@@ -220,7 +207,8 @@ int main(void)
             CHECK(ini_get_bool(i, "hotkeys", "confirm_quit", 1) == 0);
             ini_free(i);
         }
-        /* "Save Game Profile": settings counted as the user sees them, and the global values pinned (not the hotkey button / menu combo) */
+        /* "Save Game Profile": settings counted as the user sees them, global values pinned (not the hotkey button /
+         * menu combo) */
         CHECK(cfg_init(dir3) == 0 && cfg_load_game(md5) == 0);
         ini_set(g_cfg.game, "pad:x", "a", "button:1");
         ini_set(g_cfg.game, "pad:x", "b", "button:2");
@@ -237,9 +225,9 @@ int main(void)
                   ini_has(g_cfg.game, "hotkeys", "confirm_quit") && ini_has(g_cfg.game, "input", "soft_tilt_scale") &&
                   ini_has(g_cfg.game, "states", "autosave_on_quit"));
             CHECK(!ini_has(g_cfg.game, "hotkeys", "hotkey_button") && !ini_has(g_cfg.game, "menu", "menu_combo") && !ini_has(g_cfg.game, "menu", "dim_percent"));
-            CHECK(cfg_pin_profile() == 0);                                   /* nothing more to pin */
+            CHECK(cfg_pin_profile() == 0);
             CHECK(cfg_game_setting_count() == before + n);
-            CHECK(g_cfg.confirm_quit == 1);                                  /* the pinned value is what is in force */
+            CHECK(g_cfg.confirm_quit == 1);
         }
         cfg_shutdown();
     }

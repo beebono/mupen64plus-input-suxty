@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
-# Generates src/font_data.c: two anti-aliased ASCII (32..126) bitmap font atlases for suxty's own-drawn UI,
-#   8x16   (menu items, titles)   and   12x24  (hint / footer text: 1.5x the 8x16 size, drawn at integer scale only,
-#                                              because a fractionally scaled bitmap looks uneven).
-# Both are rasterised from DejaVu Sans Mono Bold (Bitstream Vera licence: free to embed/redistribute, the glyph shapes
-# are only used as bitmap data here).  Cells 95..98 of each atlas hold a down, up, left and right arrow (U+2193 / U+2191 / U+2190 / U+2192), which
-# ui text reaches as the control characters \x01 (down), \x02 (up), \x03 (left) and \x04 (right); the last cell is solid white (rectangles).
-# Run once; the generated file is checked in, so the build does not depend on Python or PIL.
-#
+# Generates src/font_data.c: 8x16 (items) and 12x24 (hints, integer scale only) ASCII atlases from DejaVu Sans Mono Bold.
+# Cells 95..98 are the down, up, left, right arrows (control chars \x01..\x04); the last cell is solid white.
 # usage: tools/gen_font.py [path/to/DejaVuSansMono-Bold.ttf] > src/font_data.c
 import sys
 from PIL import Image, ImageDraw, ImageFont
 
 ttf = sys.argv[1] if len(sys.argv) > 1 else "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
-COLS, ROWS = 16, 8                  # atlas = 16 x 8 cells
+COLS, ROWS = 16, 8
 ARROWS = {95: "↓", 96: "↑", 97: "←", 98: "→"}
 
 
 def make_atlas(cw, ch, size):
     font = ImageFont.truetype(ttf, size)
-    big = ImageFont.truetype(ttf, size * 4)      # supersample to get decent AA at tiny size
+    big = ImageFont.truetype(ttf, size * 4)      # supersample for decent AA at tiny size
     atlas = Image.new("L", (cw * COLS, ch * ROWS), 0)
     asc, desc = font.getmetrics()
 
@@ -33,7 +27,7 @@ def make_atlas(cw, ch, size):
         glyph(code - 32, chr(code))
     for cell, text in ARROWS.items():
         glyph(cell, text)
-    last = COLS * ROWS - 1           # a solid white texel block in the last cell (used for rectangles)
+    last = COLS * ROWS - 1
     atlas.paste(255, ((last % COLS) * cw, (last // COLS) * ch, (last % COLS) * cw + cw, (last // COLS) * ch + ch))
     return atlas
 

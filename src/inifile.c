@@ -176,7 +176,6 @@ int ini_save(const ini_t *ini, const char *path, const char *header_comment)
         return -1;
     if (header_comment != NULL)
         fprintf(f, "%s\n", header_comment);
-    /* group by section, in order of first appearance */
     for (i = 0; i < ini->n; i++)
     {
         int seen = 0;

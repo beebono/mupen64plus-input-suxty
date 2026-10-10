@@ -1,18 +1,11 @@
-/* mupen64plus-input-suxtytest: a tiny input plugin that does what the stock mupen64plus-input-sdl does
- * (SDL_JoystickUpdate + SDL_JoystickGetButton/GetAxis/GetHat) and logs every change of what it sees.
- * It is how suxty's input filter (src/inputfilter.c) is tested end to end: with the filter working, the
- * log must show no button, hat or axis activity while the hotkey is held.  GPLv2+.
- *
- *   gcc -shared -fPIC -I<core>/src/api -o mupen64plus-input-suxtytest.so testinput.c $(sdl2-config --cflags --libs) -ldl
- *
- * TESTINPUT_NAME selects the joystick by name substring (default: "suxty vpad"; else joystick 0).
- *
- * WRAP MODE: with TESTINPUT_WRAP=/path/to/mupen64plus-input-sdl.so the plugin loads the *stock* input plugin
- * and forwards every call to it, and logs the N64 controller state the stock plugin produces
- * ("TESTINPUT: N64[0] buttons=0x0080 (A) stick=(0,0)").  That is how the controller remap (M3) is tested
- * end to end: the stock plugin, configured through the Input-SDL-ControlN sections suxty writes, reads suxty's
- * SDL joystick layer, and this log shows what the game would get.
- */
+/* mupen64plus-input-suxtytest: reads joysticks like the stock input-sdl and logs every change, to test the input
+ * filter end to end
+ * (no activity while the hotkey is held). GPLv2+, like the rest of the project.
+ * TESTINPUT_NAME selects the joystick by name substring (default "suxty vpad", else joystick 0).
+ * TESTINPUT_WRAP=<stock mupen64plus-input-sdl.so> forwards every call to the stock plugin and logs the N64 state it
+ * produces, to test the remap.
+ * gcc -shared -fPIC -I<core>/src/api -o mupen64plus-input-suxtytest.so testinput.c $(sdl2-config --cflags --libs)
+ * -ldl */
 #include <dlfcn.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,7 +19,6 @@
 #include "m64p_plugin.h"
 #include "m64p_types.h"
 
-/* ---- wrap mode ---- */
 static void *l_wrap;
 static m64p_error (*w_startup)(m64p_dynlib_handle, void *, void (*)(void *, int, const char *));
 static m64p_error (*w_shutdown)(void);
@@ -192,7 +184,6 @@ EXPORT void CALL GetKeys(int Control, BUTTONS *Keys)
         fflush(stdout);
         strcpy(l_last, cur);
     }
-    /* A button -> N64 A, so a real game could be steered with it */
     Keys->Value = 0;
     if (SDL_JoystickGetButton(l_js, 0))
         Keys->A_BUTTON = 1;

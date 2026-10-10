@@ -18,11 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-
-/* This header file is for versioning information
- *
- */
-
 #if !defined(VERSION_H)
 #define VERSION_H
 

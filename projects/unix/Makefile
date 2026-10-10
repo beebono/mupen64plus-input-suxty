@@ -17,15 +17,6 @@
 # *   Free Software Foundation, Inc.,                                       *
 # *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
 # * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-# Makefile for mupen64plus-input-suxty  (Linux only; native or cross)
-#
-#   native:        make all                      -> mupen64plus-input-suxty.so
-#   aarch64 cross: make all CROSS_COMPILE=aarch64-linux-gnu- POSTFIX=-aarch64 \
-#                    SDL_CFLAGS="-I/usr/aarch64-linux-gnu/include/SDL2 -D_REENTRANT" \
-#                    SDL_LDLIBS="-L<dir with libSDL2-2.0.so.0> -l:libSDL2-2.0.so.0"
-#
-# suxty needs SDL2 only: GL / GLES entry points are fetched at run time through
-# SDL_GL_GetProcAddress, so neither GL headers nor libGLESv2/libEGL are needed to build.
 
 UNAME ?= $(shell uname -s)
 ifneq ("$(UNAME)","Linux")
@@ -41,7 +32,6 @@ WARNFLAGS ?= -Wall -Wextra
 CFLAGS += -std=gnu11 -D_GNU_SOURCE $(OPTFLAGS) $(WARNFLAGS) -I$(SRCDIR) -pthread
 LDLIBS += -pthread -ldl -lm
 
-# SDL2: pkg-config unless SDL_CFLAGS and SDL_LDLIBS are given (needed for cross builds without a target pkg-config)
 ifeq ($(origin SDL_CFLAGS) $(origin SDL_LDLIBS), undefined undefined)
   ifeq ($(origin PKG_CONFIG), undefined)
     PKG_CONFIG = $(if $(shell which $(CROSS_COMPILE)pkg-config 2>/dev/null),$(CROSS_COMPILE)pkg-config,pkg-config)
@@ -59,7 +49,6 @@ ifeq ($(BIG_ENDIAN), 1)
   CFLAGS += -DM64P_BIG_ENDIAN
 endif
 
-# set mupen64plus core API header path
 ifneq ("$(APIDIR)","")
   CFLAGS += "-I$(APIDIR)"
 else
@@ -81,7 +70,6 @@ else
   endif
 endif
 
-# reduced compile output when running make without V=1
 ifneq ($(findstring $(MAKEFLAGS),s),s)
 ifndef V
 	Q_CC  = @echo '    CC  '$@;
@@ -95,7 +83,6 @@ INSTALL  ?= install
 MKDIR    ?= mkdir -p
 COMPILE.c = $(Q_CC)$(CC) $(CFLAGS) $(CPPFLAGS) $(TARGET_ARCH) -c
 
-# installation: next to the other plugins
 ifeq ($(PREFIX),)
   PREFIX := /usr/local
 endif
@@ -113,8 +100,7 @@ else
   INSTALL_STRIP_FLAG ?= -s
 endif
 
-# The plugin: only the Mupen64Plus plugin API is exported (-fvisibility=hidden + EXPORT), and the plugin binds its own
-# symbols to itself (-Bsymbolic), so nothing in it can be interposed by, or interpose, another plugin or the front-end.
+# only the plugin API is exported (-fvisibility=hidden + EXPORT); -Bsymbolic stops the plugin interposing or being interposed
 SOURCE = \
 	$(SRCDIR)/audio.c \
 	$(SRCDIR)/autosave.c \
@@ -188,11 +174,9 @@ install: $(TARGET)
 uninstall:
 	$(RM) "$(DESTDIR)$(PLUGINDIR)/mupen64plus-input-suxty.so"
 
-# build dependency files
 CFLAGS += -MD -MP
 -include $(OBJECTS:.o=.d)
 
-# standard build rules
 $(OBJDIR)/%.o: $(SRCDIR)/%.c
 	@$(MKDIR) $(dir $@)
 	$(COMPILE.c) $(PLUGIN_CFLAGS) -o $@ $<
@@ -200,8 +184,6 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
 $(TARGET): $(OBJECTS)
 	$(Q_LD)$(CC) $(CFLAGS) $(PLUGIN_CFLAGS) $(PLUGIN_LDFLAGS) $^ $(LDLIBS) -o $@
 
-# unit tests (need only the SDL2 headers): the N64 mapping model (src/padmap.c), the config layers and the migration of
-# an old suxty.cfg (src/cfg.c, src/padmap.c), and foir discovery / option layering against a fake foir (src/foir_if.c)
 check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_uitext test_quitarm
 	./test_padmap
 	./test_cfg
@@ -220,7 +202,6 @@ test_cfg: $(SRCDIR)/../tools/test_cfg.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SR
 test_foir_if: $(SRCDIR)/../tools/test_foir_if.c $(SRCDIR)/foir_if.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/padmap.c $(SRCDIR)/osal_files_unix.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm -ldl
 
-# the D-pad grid navigation (src/uinav.c) and the double-press quit logic (src/quitarm.c): pure functions
 test_uinav: $(SRCDIR)/../tools/test_uinav.c $(SRCDIR)/uinav.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
 
@@ -230,7 +211,6 @@ test_uitext: $(SRCDIR)/../tools/test_uitext.c $(SRCDIR)/uitext.c
 test_quitarm: $(SRCDIR)/../tools/test_quitarm.c $(SRCDIR)/quitarm.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
 
-# the auto-save safety net and the inotify watcher (zlib is used by the test only, to write the files the plugin checks)
 test_autosave: $(SRCDIR)/../tools/test_autosave.c $(SRCDIR)/autosave.c $(SRCDIR)/filewatch.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^ -lz
 

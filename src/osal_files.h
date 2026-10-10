@@ -19,19 +19,14 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* This header file is for all kinds of system-dependent file handling
- *
- */
-
 #if !defined(OSAL_FILES_H)
 #define OSAL_FILES_H
 
 #include "m64p_types.h"
 #include "osal_preproc.h"
 
-/* some file-related preprocessor definitions */
 #if defined(WIN32) && !defined(__MINGW32__)
-  #include <io.h> // For _unlink()
+  #include <io.h>
 
   #define unlink _unlink
   #define snprintf _snprintf
@@ -39,12 +34,11 @@
 
   #define OSAL_DIR_SEPARATORS           "\\/"
 #else  /* Not WIN32 */
-  #include <unistd.h>  // for unlink()
+  #include <unistd.h>
 
   #define OSAL_DIR_SEPARATORS           "/"
 #endif
 
-/* data structure for linked list of shared libraries found in a directory */
 typedef struct _osal_lib_search {
   char                     filepath[PATH_MAX];
   char                    *filename;
@@ -52,17 +46,14 @@ typedef struct _osal_lib_search {
   struct _osal_lib_search *next;
   } osal_lib_search;
 
-/* const definitions for system directories to search when looking for mupen64plus plugins */
 extern const int   osal_libsearchdirs;
 extern const char *osal_libsearchpath[];
 
-/* functions for searching for shared libraries in a given directory */
 extern osal_lib_search *osal_library_search(const char *searchpath);
 extern void             osal_free_lib_list(osal_lib_search *head);
 
-/* suxty additions: small file helpers */
-extern int osal_mkdir_p(const char *path);     /* mkdir -p; 0 on success */
-extern int osal_file_exists(const char *path);  /* 1 if path exists */
+extern int osal_mkdir_p(const char *path);
+extern int osal_file_exists(const char *path);
 
 #endif /* #define OSAL_FILES_H */
 

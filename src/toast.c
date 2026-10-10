@@ -37,12 +37,12 @@ static int      l_enabled = 1;
 static int      l_duration = 1800;
 static char     l_text[96];
 static toast_kind l_kind;
-static uint32_t l_until;           /* SDL_GetTicks() deadline; 0 = none */
+static uint32_t l_until;
 static char     l_badge[24];
 static int      l_menu_open;
 static char     l_note[96];
 static toast_kind l_note_kind;
-static uint32_t l_note_until;      /* the menu's notice (see toast_set_menu_open()) */
+static uint32_t l_note_until;
 
 void toast_set_enabled(int enabled)     { l_enabled = enabled; if (!enabled) l_until = 0; }
 void toast_set_duration_ms(int ms)      { l_duration = ms < 300 ? 300 : ms > 10000 ? 10000 : ms; }
@@ -123,7 +123,7 @@ void toast_draw(int w, int h)
     int scale, pad, margin, border;
 
     ui_metrics_for(&m, w, h);
-    scale = m.body > 1 ? m.body : 1;                   /* toasts are a notch smaller than menu items */
+    scale = m.body > 1 ? m.body : 1;
     if (m.body == 1 && m.item == 2)
         scale = 2;                                     /* 480p: the 8x16 font at 1x is too small to read from a couch */
     pad = 3 * m.body;
@@ -139,7 +139,6 @@ void toast_draw(int w, int h)
         }
         else
         {
-            /* '\n' starts another line (long notices); the lines are left-aligned in one box */
             char lines[3][96];
             int nl = 0, tw = 0, i, lh = FONT_GLYPH_H * scale;
             const char *p = l_text;

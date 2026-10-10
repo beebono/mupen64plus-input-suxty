@@ -18,13 +18,8 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The live controller remap layer: which physical pad drives which N64 player, with which padmap.
- *
- * suxty IS the input plugin, so there is nothing to configure in another plugin and no SDL joystick call is
- * intercepted: GetKeys() asks remap_player_state() for the N64 state that the player's mapping makes of the (hotkey
- * filtered, see inputfilter.h) pad.  A change of a mapping, the D-pad swap, the deadzone or the player's pad is therefore
- * live: the next poll sees it.  Two layers: the global mapping (suxty.cfg) and the game's own (games/<md5>.cfg).
- */
+/* GetKeys() asks remap_player_state() for the N64 state the player's mapping makes of the hotkey-filtered pad, so any
+ * change is live on the next poll */
 
 #ifndef REMAP_H
 #define REMAP_H
@@ -37,38 +32,33 @@
 
 #define REMAP_PLAYERS 4
 
-int  remap_init(void);                    /* after pad_init() and cfg_init() */
+int  remap_init(void);
 void remap_shutdown(void);
-int  remap_enabled(void);                 /* at least one player has a pad */
+int  remap_enabled(void);
 
-void remap_prepare_launch(void);                    /* InitiateControllers: who plays */
-void remap_finish(void);                            /* RomClosed / shutdown: write pending changes */
+void remap_prepare_launch(void);
+void remap_finish(void);
 
-/* GetKeys, on the emulation thread. */
-void remap_update(void);                            /* after every SDL_JoystickUpdate: evaluate all players */
-int  remap_player_state(int player, n64_state *out);   /* 1 = the player has a pad */
+void remap_update(void);
+int  remap_player_state(int player, n64_state *out);
 
-/* Menu API.  Two layers (M4): the global mapping/choices and the game's own.  remap_get() shows the layer of the
- * current scope (g_cfg.scope); remap_edit() + remap_commit() change and persist it (suxty.cfg, or the game file in
- * GAME scope, where the game starts from a copy of the global mapping).  What the game plays with is the game's layer
- * if it has one. */
 const padmap *remap_get(int player);
 padmap       *remap_edit(int player);               /* then remap_commit() */
-void          remap_commit(int player);             /* persist */
-int           remap_player_want_overridden(int player);   /* the game file chooses this player's pad */
-int           remap_pad_overridden(int player);     /* the game file has its own mapping for this player's pad */
-int           remap_reset_game(void);               /* drop all of the game's controller choices/mappings; returns how many */
-void          remap_flush(void);                    /* write pending changes */
+void          remap_commit(int player);
+int           remap_player_want_overridden(int player);
+int           remap_pad_overridden(int player);
+int           remap_reset_game(void);
+void          remap_flush(void);
 int           remap_player_pad(int player);         /* pad.c index, or -1 */
-int           remap_player_live(int player);        /* the player was present at launch (the core was told) */
-const char   *remap_player_want(int player);        /* "" auto, "none", or a pad name */
-/* Chooses the pad of a player ("" auto, "none", pad name).  Returns 1 = effective now, 0 = from the next launch. */
+int           remap_player_live(int player);
+const char   *remap_player_want(int player);
+/* returns 1 = effective now, 0 = from the next launch */
 int           remap_set_pad(int player, const char *want);
-/* Rebuilds the player's mapping from the pad's default layout (deadzone / range are kept); 0 ok, -1 with msg */
+/* deadzone / range are kept; 0 ok, -1 with msg */
 int           remap_default_mapping(int player, char *msg, size_t msgsize);
-int           remap_pin_game(void);                 /* "Save Game Profile": everything in force becomes the game's own; returns how many */
-/* the N64 state this player's mapping makes of the real, unfiltered pad (the "test" page) */
+int           remap_pin_game(void);
+/* of the real, unfiltered pad (the "test" page) */
 void          remap_probe(int player, n64_state *out);
-void          remap_set_probe_override(int on, const n64_state *st);   /* debug script: show this state instead */
+void          remap_set_probe_override(int on, const n64_state *st);
 
 #endif /* REMAP_H */

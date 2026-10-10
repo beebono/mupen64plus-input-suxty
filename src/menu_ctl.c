@@ -18,10 +18,6 @@
  *   51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* The controller and hotkey pages of the pause menu: player / pad choice, the D-pad toggle, button mapping with the
- * capture prompt (including the C-Face shift and Soft Tilt hold buttons), a controller test, and the hotkey combo
- * assignment with its lock-out guards.  Drawn by menu.c's page stack; see menu_int.h. */
-
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -37,12 +33,12 @@
 #include "ui.h"
 #include "uitext.h"
 
-#define CAPTURE_TIMEOUT_MS   5000u     /* a control capture gives up after this long without input */
-#define COMBO_IDLE_MS        7000u     /* a combo capture gives up after this long without a button */
-#define TEST_EXIT_HOLD_MS    3000u     /* Test controller: hold B this long to leave (a tap of B is a button to test) */
+#define CAPTURE_TIMEOUT_MS   5000u
+#define COMBO_IDLE_MS        7000u
+#define TEST_EXIT_HOLD_MS    3000u     /* hold B this long to leave: a tap is a button to test */
 #define CONFIRM_TIMEOUT_MS  10000u     /* a menu-combo change must be proven by using it within this time */
 
-static int  l_player;                  /* the player the Controls pages edit, 0-3 */
+static int  l_player;
 static char l_msg[160];
 static int  l_msg_kind;
 
@@ -56,13 +52,11 @@ static int popcount(uint32_t v) { return __builtin_popcount(v); }
 
 static int scope_game(void) { return g_cfg.scope == CFG_SCOPE_GAME; }
 
-/* ---- capture of one physical control ------------------------------------------------------------ */
-
-#define CAP_CFACE (-1)                 /* the target of a capture that is not an N64 input: the hold buttons */
+#define CAP_CFACE (-1)                 /* target of a capture that is not an N64 input: the hold buttons */
 #define CAP_TILT  (-2)
 
 static struct {
-    int      ctl;                      /* n64_ctl (as the Buttons page lists it), CAP_CFACE or CAP_TILT */
+    int      ctl;
     uint32_t deadline;
 } l_cap;
 
@@ -96,7 +90,7 @@ static n64_ctl opposite(n64_ctl c)
     return c == N64_SLEFT ? N64_SRIGHT : c == N64_SRIGHT ? N64_SLEFT : c == N64_SUP ? N64_SDOWN : N64_SUP;
 }
 
-/* binds `s` to the target of the capture; a control can only drive one input (or hold button), so it moves */
+/* a control drives only one input (or hold button), so it moves */
 static void assign_src(int p, int ctl, const padsrc *s)
 {
     padmap *m = remap_edit(p);
@@ -106,7 +100,6 @@ static void assign_src(int p, int ctl, const padsrc *s)
     int have_lay = pad_layout_get(remap_player_pad(p), &lay) == 0;
     int k;
 
-    /* the same control used elsewhere goes: another input, or a hold button */
     for (k = 0; k < N64_NUM; k++)
         if (k != (ctl >= 0 ? (int) padmap_chan(m, (n64_ctl) ctl) : -1) && padsrc_same(&m->src[k], s))
         {
@@ -131,7 +124,7 @@ static void assign_src(int p, int ctl, const padsrc *s)
     {
         n64_ctl c = padmap_chan(m, (n64_ctl) ctl);
         m->src[c] = *s;
-        /* "Stick Left" captured as axis 0-: offer axis 0+ for "Stick Right" if that is still free */
+        /* "Stick Left" captured as axis 0-: offer axis 0+ for "Stick Right" if still free */
         if (ctl >= N64_SLEFT && s->type == PAD_BIND_AXIS)
         {
             n64_ctl o = padmap_chan(m, opposite((n64_ctl) ctl));
@@ -145,7 +138,6 @@ static void assign_src(int p, int ctl, const padsrc *s)
     }
     remap_commit(p);
     pad_format_src(remap_player_pad(p), s, text, sizeof(text));
-    /* "South -> A (was B)": the control, what it drives now, and what it drove before (the status line wraps it when it is long) */
     snprintf(title, sizeof(title), "%s", ctl == CAP_CFACE ? "C-Face Shift" : ctl == CAP_TILT ? "Soft Tilt" : n64_ctl_name((n64_ctl) ctl));
     uitext_remap_msg(l_msg, sizeof(l_msg), text, title, from);
     l_msg_kind = 1;
@@ -181,8 +173,6 @@ static void page_capture(void)
         menu_pop();
     }
 }
-
-/* ---- Controls --------------------------------------------------------------------------------- */
 
 static void pad_status(char *out, size_t size)
 {
@@ -246,7 +236,6 @@ static void page_controls(int back)
     if (ui_item("Buttons", ">") == 1)
         menu_push(PAGE_BUTTONS);
     ui_mark_last(mapmark);
-    /* what the D-pad of this pad drives: the N64 D-pad, or the stick (a software swap of the two groups of channels) */
     role = padmap_dpad_is_stick(m, remap_player_pad(p) >= 0 && pad_layout_get(remap_player_pad(p), &lay) == 0 ? &lay : NULL);
     if (ui_choice("D-pad Acts As", &role, dpad_names, 2))
     {
@@ -315,8 +304,6 @@ static void page_confirm_ctl_reset(int back)
         menu_pop();
 }
 
-/* ---- reset to the default mapping ------------------------------------------------------------------ */
-
 static void page_confirm_mapreset(int back)
 {
     ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
@@ -337,8 +324,6 @@ static void page_confirm_mapreset(int back)
         menu_pop();
 }
 
-/* ---- button mapping ---------------------------------------------------------------------------------- */
-
 static void page_map(int back)
 {
     char title[40], text[56];
@@ -351,7 +336,7 @@ static void page_map(int back)
     ui_panel_begin_scroll(title, N64_NUM + 3, 1);
     for (n = 0; n < N64_NUM; n++)
     {
-        /* with the D-pad swap on, the row of the D-pad shows (and edits) what the stick has stored, and the other way round */
+        /* with the D-pad swap on, the D-pad row shows (and edits) what the stick has stored, and vice versa */
         const padsrc *s = &m->src[padmap_chan(m, (n64_ctl) n)];
         if (s->type != PAD_BIND_NONE)
             pad_format_src(pad, s, text, sizeof(text));
@@ -368,7 +353,6 @@ static void page_map(int back)
             set_msg(text, 0);
         }
     }
-    /* the two hold buttons: while C-Face shift is held the face buttons act as C buttons; Soft Tilt halves the stick */
     if (m->cface.type != PAD_BIND_NONE)
         pad_format_src(pad, &m->cface, text, sizeof(text));
     else
@@ -416,9 +400,6 @@ static void page_map(int back)
         menu_pop();
 }
 
-/* ---- controller test ------------------------------------------------------------------------------ */
-
-/* The N64 buttons of the Buttons row, in the order of the row, with the N64's own (short) names */
 static const uitext_btn l_test_btns[] = {
     { 1u << N64_A, "A" }, { 1u << N64_B, "B" }, { 1u << N64_Z, "Z" }, { 1u << N64_START, "St" }, { 1u << N64_L, "L" }, { 1u << N64_R, "R" },
 };
@@ -448,10 +429,9 @@ static void page_test(uint32_t held)
     else
         l_test_hold = 0;
 
-    ui_next_panel_no_footer();                    /* the hold bar says everything the footer would */
+    ui_next_panel_no_footer();
     ui_panel_begin_ex("Test Controller", 10, UI_W_DIALOG);
     {
-        /* every cell has a fixed width: an arrow keeps its place (dim when up), nothing shifts as inputs change */
         ui_cell top[2], mid[3], bt;
         uitext_arrows((b >> N64_DUP) & 1, (b >> N64_DDOWN) & 1, (b >> N64_DLEFT) & 1, (b >> N64_DRIGHT) & 1, dpad);
         uitext_arrows((b >> N64_CUP) & 1, (b >> N64_CDOWN) & 1, (b >> N64_CLEFT) & 1, (b >> N64_CRIGHT) & 1, cpad);
@@ -459,7 +439,6 @@ static void page_test(uint32_t held)
         top[1] = (ui_cell) { "C", UITEXT_ARROWS_ALL, cpad };
         ui_cells(top, 2);
 
-        /* all the N64 buttons, always in the same places: dim, and lit while they are down */
         uitext_btn_cells(l_test_btns, (int) (sizeof(l_test_btns) / sizeof(l_test_btns[0])), b, bghost, bon, sizeof(bghost));
         bt = (ui_cell) { "Buttons", bghost, bon };
         ui_cells(&bt, 1);
@@ -481,13 +460,8 @@ static void page_test(uint32_t held)
     }
 }
 
-/* ---- hotkeys ---------------------------------------------------------------------------------- */
-
-/* The rows show and edit the layer of the current scope: the global hotkeys, or this game's (its own entries over the
- * global ones).  Lock-out validation is done within that layer. */
-
 typedef struct {
-    const char *key;       /* suxty.cfg key */
+    const char *key;
     const char *label;
     int         clearable;
 } hk_row;
@@ -516,7 +490,6 @@ static uint32_t scoped_hot(void)
     return hot != 0 ? hot : pad_parse_combo("select");
 }
 
-/* the combo of row `i` as the scope's layer has it, with `hot` as the hotkey button */
 static uint32_t scoped_mask(int i, uint32_t hot)
 {
     if (i == 0)
@@ -524,10 +497,10 @@ static uint32_t scoped_mask(int i, uint32_t hot)
     return cfg_combo_mask(cfg_get_scoped(hk_section(i), l_hk[i].key, ""), hot);
 }
 
-/* unconfirmed menu combo / hotkey button change (lock-out guard).  Remembers how the layer looked before. */
+/* unconfirmed menu combo / hotkey button change (lock-out guard); remembers how the layer looked before */
 static struct {
     int      active;
-    int      game;                   /* the layer that was edited */
+    int      game;
     int      had_menu, had_hot;      /* the game layer had its own entry */
     char     old_menu[96];
     char     old_hot[96];
@@ -554,7 +527,6 @@ static void revert_pending(void)
     l_pend.active = 0;
 }
 
-/* The combo that would apply for hotkey row `i` if row `changed` had `mask` and the hotkey button were `hot`. */
 static uint32_t effective(int i, int changed, uint32_t mask, uint32_t hot)
 {
     if (i == changed)
@@ -562,8 +534,7 @@ static uint32_t effective(int i, int changed, uint32_t mask, uint32_t hot)
     return scoped_mask(i, hot);
 }
 
-/* Returns NULL if `mask` may be assigned to row `idx`, else why not.  An identical combo of an action row is
- * "stolen": its index goes to *steal and the caller clears it. */
+/* an identical combo of an action row is "stolen": its index goes to *steal and the caller clears it */
 static const char *validate(int idx, uint32_t mask, int *steal, char *buf, size_t size)
 {
     uint32_t hot = scoped_hot();
@@ -711,7 +682,6 @@ static void commit_combo(int idx, uint32_t mask)
     set_msg(err, 1);
 }
 
-/* combo capture: hold the buttons, let go */
 static struct {
     int      idx;
     uint32_t acc, ignore;
@@ -804,7 +774,6 @@ int ctl_combo_pressed(uint32_t held)
     return 1;
 }
 
-/* global scope: back to the built-in defaults.  Game scope: drop the game's entries so the global ones apply again. */
 static void reset_hotkeys(void)
 {
     int i;
@@ -845,7 +814,6 @@ static void page_hotkeys(uint32_t held, int back)
         {
             if (scope_game() && over)
             {
-                /* the game's own value goes away: this game follows the global hotkey again */
                 cfg_reset(hk_section(i), l_hk[i].key);
                 cfg_save();
                 snprintf(disp, sizeof(disp), "%s: global again", l_hk[i].label);
@@ -883,8 +851,6 @@ static void page_hotkeys(uint32_t held, int back)
     if (back)
         menu_pop();
 }
-
-/* ---- dispatch ------------------------------------------------------------------------------------- */
 
 int ctl_owns_page(menu_page p) { return p >= PAGE_CONTROLS && p <= PAGE_CONFIRM_CTL_RESET; }
 

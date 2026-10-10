@@ -51,7 +51,7 @@ static int scan_cb(struct dl_phdr_info *info, size_t size, void *data)
     (void) size;
     if (info->dlpi_name == NULL || info->dlpi_name[0] == 0)
         return 0;
-    h = dlopen(info->dlpi_name, RTLD_NOW | RTLD_NOLOAD);       /* a reference to an object that is loaded already */
+    h = dlopen(info->dlpi_name, RTLD_NOW | RTLD_NOLOAD);       /* reference to an already loaded object */
     if (h == NULL)
         return 0;
     *(void **) (&get) = dlsym(h, "FoirSuxtyGetInterface");
@@ -106,8 +106,6 @@ void fif_release(void)
 unsigned fif_count(void) { return l_if != NULL ? l_if->option_count : 0; }
 const struct foir_suxty_option *fif_option(unsigned i) { return l_if != NULL && i < l_if->option_count ? &l_if->options[i] : NULL; }
 
-/* ---- text form of a value ---------------------------------------------------------------------------------- */
-
 void fif_value_text(unsigned i, int v, char *out, unsigned size)
 {
     const struct foir_suxty_option *o = fif_option(i);
@@ -149,15 +147,12 @@ static int parse_value(const struct foir_suxty_option *o, const char *text, int 
     return 1;
 }
 
-/* A stored value of one layer that parses (a value that doesn't is skipped, so a hand-edit mistake in the game file
- * does not hide a good global value). */
+/* unparsable values are skipped so a hand-edit mistake in the game file doesn't hide a good global one */
 static int layer_value(const ini_t *ini, const struct foir_suxty_option *o, int *v)
 {
     return ini != NULL && ini_has(ini, "foir", o->key) && parse_value(o, ini_get(ini, "foir", o->key, ""), v);
 }
 
-/* the value stored for option i: in the edit scope (scoped != 0; all games = suxty.cfg only), or what the game plays
- * with (the game's value, else suxty.cfg's) */
 static int stored(unsigned i, int scoped, int *v)
 {
     const struct foir_suxty_option *o = fif_option(i);
@@ -193,15 +188,12 @@ void fif_apply_config(void)
         DebugMessage(M64MSG_INFO, "foir: %d option(s) set from the suxty configuration", n);
 }
 
-/* ---- menu -------------------------------------------------------------------------------------------------- */
-
 int fif_shown(unsigned i)
 {
     int v;
     if (stored(i, 1, &v))
         return v;
-    /* nothing stored in this scope: all games -> foir's own value (unless this game overrides it, then the running one);
-     * this game -> what the game plays with */
+    /* unset in this scope: GAME shows what the game plays with, global shows foir's own value */
     if (g_cfg.scope == CFG_SCOPE_GAME)
         return effective(i);
     return l_base[i];
@@ -246,7 +238,6 @@ void fif_reset(unsigned i)
     l_if->set(i, effective(i));
 }
 
-/* every option takes the value the game plays with again (after "Reset all to global") */
 void fif_reapply_all(void)
 {
     unsigned i;
@@ -254,7 +245,6 @@ void fif_reapply_all(void)
         l_if->set(i, effective(i));
 }
 
-/* "Save Game Profile": every option this game has no value for yet gets the value it plays with now.  Returns how many were written. */
 int fif_pin_game(void)
 {
     unsigned i;

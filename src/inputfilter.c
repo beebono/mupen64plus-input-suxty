@@ -29,18 +29,15 @@
 #include "pad.h"
 #include "remap.h"
 
-/* All of this runs on the emulation thread (the one that calls GetKeys and the session hook).
- *
- * State is kept per controller: holding the hotkey on pad 1 neutralizes pad 1 only, so a second player's
- * controller keeps working.  Slot PAD_MAX_PADS is the keyboard / test-injected input, which has no SDL joystick
- * to hide anything from. */
+/* emulation thread only; state is per controller. Slot PAD_MAX_PADS is keyboard / test-injected input (no SDL
+ * joystick) */
 
 #define NDEV (PAD_MAX_PADS + 1)
 
 typedef struct {
-    uint32_t prev;           /* digital state at the last update */
-    uint32_t sticky;         /* buttons hidden until they are physically released */
-    int      hot;            /* hotkey physically held */
+    uint32_t prev;
+    uint32_t sticky;         /* hidden until physically released */
+    int      hot;
 } dev_state;
 
 static volatile int l_bypass;
@@ -49,7 +46,7 @@ static uint32_t     l_hot_mask;
 static uint32_t     l_combo_buttons;
 static int          l_force;
 static dev_state    l_dev[NDEV];
-static int          l_any;               /* cached: anything hidden right now? */
+static int          l_any;
 static uint32_t     l_hidden_count;
 
 static void recompute_any(void)
@@ -80,9 +77,9 @@ void inputfilter_force(int on)
     int i;
     l_force = on;
     for (i = 0; i < NDEV; i++)
-        l_dev[i].sticky |= l_dev[i].prev;    /* whatever is held right now (the combo, the menu keys) is hidden until released */
+        l_dev[i].sticky |= l_dev[i].prev;    /* whatever is held right now is hidden until released */
     recompute_any();
-    remap_update();                          /* the virtual pad the plugin reads follows at once */
+    remap_update();                          /* the virtual pad follows at once */
 }
 
 int      inputfilter_active(void)        { return l_enabled && (l_force || l_any); }
@@ -108,7 +105,7 @@ void inputfilter_update(const uint32_t d[PAD_MAX_PADS + 1])
         }
         if (l_force)
             v->sticky |= d[i];
-        v->sticky &= d[i];                               /* released buttons are visible again */
+        v->sticky &= d[i];
         if (hot != v->hot)
             DebugMessage(M64MSG_VERBOSE, "input filter: hotkey %s on pad %d (sticky mask %08x, %u values hidden from the game so far)",
                          hot ? "held" : "released", i, (unsigned) v->sticky, (unsigned) l_hidden_count);
@@ -123,7 +120,6 @@ static int filtering(void)
     return l_bypass == 0 && l_enabled && (l_force || l_any);
 }
 
-/* the game sees a neutral controller: the menu is open, or the hotkey is held on this very pad */
 static int full_mask(SDL_Joystick *js)
 {
     int dev;
@@ -133,8 +129,7 @@ static int full_mask(SDL_Joystick *js)
     return dev >= 0 && l_dev[dev].hot;
 }
 
-/* is control `idx` of type `type` bound to a button of this pad that is hidden until released?  For hats, adds the
- * direction bits to hide to *hat_bits. */
+/* for hats, adds the direction bits to hide to *hat_bits */
 static int sticky_hides(SDL_Joystick *js, int type, int idx, int *hat_bits)
 {
     const pad_bind *b = pad_bindings_for(js);
@@ -167,8 +162,6 @@ static Sint16 axis_rest(SDL_Joystick *js, int axis)
         return st;
     return 0;
 }
-
-/* ---- the physical pad as the plugin would see it (also what the remap layer evaluates) -------------- */
 
 static Uint8 phys_button(SDL_Joystick *joystick, int button)
 {
@@ -224,7 +217,6 @@ int inputfilter_phys_axis_rest(SDL_Joystick *js, int a)
     return axis_rest(js, a);
 }
 
-/* After SDL_JoystickUpdate() (pad_refresh): advance the hotkey filter, then evaluate the N64 mapping of every player. */
 void inputfilter_after_update(void)
 {
     if (l_bypass == 0)

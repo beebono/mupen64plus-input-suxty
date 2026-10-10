@@ -13,24 +13,11 @@
  *   GNU General Public License for more details.                          *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
 
-/* suxty as a Mupen64Plus *input plugin*.  The front-end (mupen64plus-ui-console, or a CFW's patched copy) loads the
- * core and the plugins the user configured and owns launching, resuming and signals; this plugin
- *
- *   - installs suxty's VidExt override from PluginStartup(), i.e. before the ROM executes and before the video plugin
- *     calls VidExt_Init() / VidExt_SetVideoMode() (ui-console: PluginSearchLoad -> CoreAttachPlugin -> M64CMD_EXECUTE),
- *   - answers GetKeys() from the pad mapping model (padmap.c) and the real SDL pad,
- *   - runs the in-game menu inside the buffer swap with the core paused (session.c).
- *
- * Call order in ui-console that this relies on:
- *   M64CMD_ROM_OPEN, PluginStartup(gfx, audio, input, rsp) [PluginSearchLoad], CoreAttachPlugin x4 (gfx InitiateGFX,
- *   audio, InitiateControllers, rsp), M64CMD_EXECUTE (main_run: plugin RomOpen's, then the emulation thread = the
- *   thread that called EXECUTE), RomClosed's, CoreDetachPlugin x4, PluginShutdown x4 (PluginUnload), M64CMD_ROM_CLOSE.
- * CoreAttachPlugin(INPUT) needs an open ROM, so everything that depends on the game (its name and MD5, its settings
- * file, the pads) is set up in InitiateControllers().
- *
- * Debug scripting for headless tests, by environment (debug.h): SUXTY_DEBUG_SCRIPT, SUXTY_DEBUG_SHOT_PREFIX,
- * SUXTY_DEBUG_OPEN_AFTER; also SUXTY_VERBOSE, SUXTY_LOG_KEYS, SUXTY_KEYBOARD (menu from the keyboard), SUXTY_GL.
- */
+/* Relies on the ui-console order: PluginStartup() runs before the video plugin calls VidExt_*, so suxty's VidExt
+ * override is in
+ * place in time. CoreAttachPlugin(INPUT) needs an open ROM, so everything game-dependent (name, MD5, settings, pads)
+ * is set up
+ * in InitiateControllers(). */
 
 #include <stdarg.h>
 #include <stdio.h>
@@ -63,10 +50,8 @@ int g_Verbose = 0;
 static void (*l_debug_cb)(void *, int, const char *);
 static void *l_debug_ctx;
 static int   l_started;
-static int   l_session_up;          /* InitiateControllers ran: pads, remap, session are live */
+static int   l_session_up;
 static int   l_log_keys;
-
-/* ---- the front-end's debug callback is the only channel we get ------------------------------------------------ */
 
 void DebugMessage(int level, const char *message, ...)
 {
@@ -93,8 +78,6 @@ void DebugCallback(void *Context, int level, const char *message)
         fprintf(stderr, "suxty: %s\n", message);
 }
 
-/* ---- plugin API ------------------------------------------------------------------------------------------------ */
-
 EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle CoreLibHandle, void *Context, void (*Callback)(void *, int, const char *))
 {
     m64p_error rval;
@@ -111,7 +94,6 @@ EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle CoreLibHandle, void *Con
     if (rval != M64ERR_SUCCESS)
         return rval;
 
-    /* suxty's own config lives next to the core's: <configdir>/suxty/suxty.cfg */
     cfgdir = (*ConfigGetUserConfigPath)();
     if (cfgdir == NULL || cfg_init(cfgdir) != 0)
     {
@@ -120,8 +102,7 @@ EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle CoreLibHandle, void *Con
         return M64ERR_FILES;
     }
 
-    /* take over the window, the GL context and the buffer swap.  Nothing has called VidExt_* yet: the video plugin's
-     * InitiateGFX / RomOpen come later, from CoreAttachPlugin / M64CMD_EXECUTE. */
+    /* take over the window, GL context and buffer swap before the video plugin's InitiateGFX / RomOpen call VidExt_* */
     rval = video_install();
     if (rval != M64ERR_SUCCESS)
     {
@@ -141,7 +122,7 @@ EXPORT m64p_error CALL PluginShutdown(void)
         return M64ERR_NOT_INIT;
     if (l_session_up)
     {
-        session_shutdown();          /* ff off, remap flush, SDL joystick/controller subsystems we initialised */
+        session_shutdown();
         l_session_up = 0;
     }
     fif_release();
@@ -168,9 +149,7 @@ EXPORT m64p_error CALL PluginGetVersion(m64p_plugin_type *PluginType, int *Plugi
     return M64ERR_SUCCESS;
 }
 
-/* Called from CoreAttachPlugin(M64PLUGIN_INPUT): the ROM is open (the attach would fail otherwise), the video and audio
- * plugins are already attached but have not opened the ROM.  The game's settings, the pads, the foir options and the
- * session start here. */
+/* the ROM is open; the video and audio plugins are attached but have not opened it */
 EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
 {
     int i;
@@ -208,11 +187,10 @@ EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
         DebugMessage(M64MSG_INFO, "menu combo: %s", combo);
     }
 
-    /* foir (if it is the video plugin): hand it this game's stored options before it opens the ROM */
+    /* hand foir this game's stored options before it opens the ROM */
     if (fif_discover())
         fif_apply_config();
 
-    /* who plays: the mapping layer decides (remap.c) */
     remap_prepare_launch();
     for (i = 0; i < 4; i++)
     {
@@ -241,7 +219,7 @@ static int axis80(int v)
     return v > 80 ? 80 : v < -80 ? -80 : v;
 }
 
-/* Runs on the emulation thread (the one that called M64CMD_EXECUTE), as does the swap that runs the menu. */
+/* runs on the emulation thread (the one that called M64CMD_EXECUTE), as does the swap that runs the menu */
 EXPORT void CALL GetKeys(int Control, BUTTONS *Keys)
 {
     static unsigned last[4] = { ~0u, ~0u, ~0u, ~0u };
@@ -252,7 +230,7 @@ EXPORT void CALL GetKeys(int Control, BUTTONS *Keys)
     if (l_session_up && Control >= 0 && Control < 4)
     {
         if (Control == 0)
-            pad_refresh();                  /* SDL_JoystickUpdate + hotkey/menu filter + N64 players, once per poll round */
+            pad_refresh();
         if (remap_player_state(Control, &st))
         {
             uint32_t b = st.buttons;
@@ -284,17 +262,18 @@ EXPORT int CALL RomOpen(void)
 
 EXPORT void CALL RomClosed(void)
 {
-    /* The video plugin's RomClosed (VidExt_Quit -> our window teardown) is independent of this one; do not touch GL here.
-     * foir may already be gone from here on: never call its interface again. */
+    /* the video plugin's RomClosed (VidExt_Quit -> our window teardown) is independent of this one; do not touch GL
+     * here.
+     * foir may already be gone from here on: never call its interface again */
     DebugMessage(M64MSG_VERBOSE, "RomClosed");
     fif_release();
     if (l_session_up)
         remap_finish();
 }
 
-/* keyboard events the core forwards: the core handles its own keyboard hotkeys, we have no keyboard bindings */
+/* the core handles its own keyboard hotkeys */
 EXPORT void CALL SDL_KeyDown(int keymod, int keysym) { (void) keymod; (void) keysym; }
 EXPORT void CALL SDL_KeyUp(int keymod, int keysym)   { (void) keymod; (void) keysym; }
 
-/* an input plugin may draw its own OSD from here; the menu is drawn from the buffer swap instead */
+/* the menu is drawn from the buffer swap instead */
 EXPORT void CALL RenderCallback(void) { }

@@ -32,7 +32,7 @@ int audio_volume_now(void)
     return v;
 }
 
-static int l_vol_initial = -2;       /* the volume the audio plugin started with (-2: not asked yet) */
+static int l_vol_initial = -2;       /* -2: not queried yet */
 
 void audio_apply_volume(void)
 {
@@ -41,7 +41,6 @@ void audio_apply_volume(void)
         l_vol_initial = audio_volume_now();
     if (v < 0)
     {
-        /* "plugin default": go back to what the plugin started with (after a reset in the menu) */
         v = l_vol_initial;
         if (v < 0 || v == audio_volume_now())
             return;

@@ -34,10 +34,10 @@
 typedef struct {
     enum { C_WAIT, C_MENU, C_SHOT, C_QUIT, C_KILL, C_STAT, C_PJSAVE, C_BUTTON, C_HOLD, C_CAP, C_PROBE } kind;
     int arg;
-    int shot_at;           /* C_HOLD: also take a screenshot on this tick of the hold (0 = none) */
+    int shot_at;
     uint32_t mask;
     padsrc src;
-    n64_state probe;       /* C_PROBE */
+    n64_state probe;
 } cmd_t;
 
 static cmd_t l_cmds[MAX_CMDS];
@@ -88,7 +88,6 @@ static void parse(const char *script)
             add(C_PJSAVE, atoi(tok + 6), 1);
         else if (strncmp(tok, "probe:", 6) == 0)
         {
-            /* "probe:a+b+cup+shift+tilt+sx60+sy-80", "probe:off": what the Test controller page shows, whatever the pad does */
             static const char *const names[N64_NBUTTONS] = { "a", "b", "z", "start", "l", "r", "dup", "ddown", "dleft", "dright",
                                                              "cup", "cdown", "cleft", "cright" };
             n64_state st;
@@ -122,7 +121,6 @@ static void parse(const char *script)
         }
         else
         {
-            /* "a", "select+r", or "hold30:select+y" */
             const char *btns = tok;
             int hold = 0;
             uint32_t mask;
@@ -177,7 +175,7 @@ void dbg_tick(dbg_tick_t *out)
 {
     memset(out, 0, sizeof(*out));
     out->pj_slot = -1;
-    if (l_hold_left > 0)            /* a hold command in progress */
+    if (l_hold_left > 0)
     {
         out->buttons = l_hold_mask;
         l_hold_age++;
@@ -187,7 +185,7 @@ void dbg_tick(dbg_tick_t *out)
             l_release_tick = 1;
         return;
     }
-    if (l_release_tick)             /* the gap tick after a button press */
+    if (l_release_tick)
     {
         l_release_tick = 0;
         return;
@@ -229,7 +227,6 @@ const char *dbg_next_shot_path(char *buf, unsigned size)
     return buf;
 }
 
-/* ---- PNG ---- */
 static uint32_t l_crc_table[256];
 
 static void crc_init(void)
@@ -308,7 +305,7 @@ int dbg_save_png(const char *path, const uint8_t *rgba, int w, int h)
             dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2];
         }
     }
-    /* zlib stream made of stored deflate blocks */
+    /* zlib header + stored deflate blocks */
     z[pos++] = 0x78;
     z[pos++] = 0x01;
     while (off < rawlen)

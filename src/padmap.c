@@ -40,8 +40,6 @@ static const char *const l_ctl_keys[N64_NUM] = {
 const char *n64_ctl_name(n64_ctl c) { return c >= 0 && c < N64_NUM ? l_ctl_names[c] : "?"; }
 const char *n64_ctl_key(n64_ctl c)  { return c >= 0 && c < N64_NUM ? l_ctl_keys[c] : "?"; }
 
-/* ---- evaluation ------------------------------------------------------------------------------ */
-
 int padsrc_activation(const padsrc *s, const padmap_io *io)
 {
     switch (s->type)
@@ -100,7 +98,6 @@ int padmap_shape(const padmap *m, int act)
     return (int) ((int64_t) (act - dz) * 32767 / (pk - dz));
 }
 
-/* the stick channel that swaps with D-pad channel n (N64_DUP .. N64_DRIGHT), and back */
 static const n64_ctl l_swap_with[N64_NUM] = {
     [N64_DUP] = N64_SUP, [N64_DDOWN] = N64_SDOWN, [N64_DLEFT] = N64_SLEFT, [N64_DRIGHT] = N64_SRIGHT,
     [N64_SUP] = N64_DUP, [N64_SDOWN] = N64_DDOWN, [N64_SLEFT] = N64_DLEFT, [N64_SRIGHT] = N64_DRIGHT
@@ -113,7 +110,6 @@ n64_ctl padmap_chan(const padmap *m, n64_ctl c)
     return c;
 }
 
-/* a normal source `s` is silenced while the C-Face shift is held if one of the shift's own sources or the shift button uses it */
 static int shadowed(const padmap *m, const padsrc *s)
 {
     int k;
@@ -145,7 +141,7 @@ void padmap_eval(const padmap *m, const padmap_io *io, n64_state *out)
     {
         const padsrc *s = &m->src[n];
         if (shift && n >= N64_CUP && n <= N64_CRIGHT && m->cface_src[n - N64_CUP].type != PAD_BIND_NONE)
-            s = &m->cface_src[n - N64_CUP];                   /* the face button acts as this C button */
+            s = &m->cface_src[n - N64_CUP];
         else if ((shift && shadowed(m, s)) || padsrc_same(s, &m->cface) || padsrc_same(s, &m->softtilt))
             s = NULL;                                         /* what the face buttons do otherwise; a hold button is never also an input */
         act[n] = (s != NULL && s->type != PAD_BIND_NONE) ? padsrc_activation(s, io) : 0;
@@ -170,8 +166,6 @@ void padmap_eval(const padmap *m, const padmap_io *io, n64_state *out)
     }
 }
 
-/* ---- construction ------------------------------------------------------------------------------ */
-
 void padmap_clear(padmap *m)
 {
     memset(m, 0, sizeof(*m));
@@ -195,7 +189,7 @@ static padsrc src_of_bind(const pad_bind *b, int dir)
     return s;
 }
 
-/* logical button -> source.  Directions that happen to be on an axis (rare) get the sign of their direction. */
+/* directions that happen to be on an axis (rare) get the sign of their direction */
 static padsrc src_of_logical(const pad_layout *L, pad_button b)
 {
     int dir = (b == PAD_UP || b == PAD_LEFT) ? -1 : 1;
@@ -243,7 +237,6 @@ static void set_dpad_as_stick(padmap *m, const pad_layout *L)
 
 static int bind_ok(const pad_layout *L, pad_button b) { return L->b[b].type != PAD_BIND_NONE; }
 
-/* A, B, Start, L, R and Z */
 static void set_base_buttons(padmap *m, const pad_layout *L)
 {
     m->src[N64_A]     = src_of_logical(L, PAD_A);
@@ -256,7 +249,6 @@ static void set_base_buttons(padmap *m, const pad_layout *L)
     else if (bind_ok(L, PAD_L3)) m->src[N64_Z] = src_of_logical(L, PAD_L3);
 }
 
-/* a control that is free to be the C-Face shift: a trigger or stick click that is not Z */
 static padsrc pick_cface(const padmap *m, const pad_layout *L)
 {
     static const pad_button cand[] = { PAD_R2, PAD_L2, PAD_R3, PAD_L3 };
@@ -273,7 +265,6 @@ static padsrc pick_cface(const padmap *m, const pad_layout *L)
     return src_none();
 }
 
-/* the face buttons A/B/X/Y become C-Down/C-Right/C-Left/C-Up (their positions on the pad) */
 static void set_face_c(padmap *m, const pad_layout *L)
 {
     m->cface_src[N64_CDOWN - N64_CUP]  = src_of_logical(L, PAD_A);
@@ -323,18 +314,16 @@ void padmap_default(padmap *m, const pad_layout *L, char *msg, size_t msgsize)
         set_dpad(&n, L);
     }
     else
-        set_dpad_as_stick(&n, L);                  /* a pad without a stick: its D-pad is the stick */
+        set_dpad_as_stick(&n, L);
     if (L->has_rs)
         set_c_from_stick(&n, &L->rx, &L->ry);
     else
     {
-        /* no right stick: the C buttons are the face buttons while a spare button is held */
         padsrc s = pick_cface(&n, L);
         if (s.type != PAD_BIND_NONE)
             padmap_set_cface(&n, L, &s);
         else
         {
-            /* nothing to hold: put what fits on the face buttons and say so */
             n.src[N64_CUP]    = src_of_logical(L, PAD_Y);
             n.src[N64_CRIGHT] = src_of_logical(L, PAD_B);
             note(msg, msgsize, "No spare button for the C-Face Shift: only C-Up and C-Right are mapped");
@@ -361,8 +350,6 @@ int padmap_dpad_is_stick(const padmap *m, const pad_layout *L)
     }
     return 0;
 }
-
-/* ---- persistence ------------------------------------------------------------------------------- */
 
 static const char *hat_text(int mask)
 {
@@ -432,7 +419,6 @@ void padmap_section(const char *pad_name, char *out, size_t size)
     out[n] = 0;
 }
 
-/* ini keys of the C-Face shift's own sources, in cface_src order */
 static const char *const l_cface_keys[4] = { "cface_c_up", "cface_c_down", "cface_c_left", "cface_c_right" };
 
 static void load_src(padsrc *dst, const ini_t *ini, const ini_t *overlay, const char *sec, const char *key)
@@ -487,11 +473,8 @@ void padmap_store(const padmap *m, ini_t *ini, const char *sec)
     }
 }
 
-/* ---- old files ----------------------------------------------------------------------------------- */
-
 static int is_none(const char *v) { return v == NULL || v[0] == 0 || strcasecmp(v, "none") == 0; }
 
-/* One pad section of the front-end / early plugin builds: `modifier` plus a layer of `mod_<key>` sources, and a `preset` name. */
 static int migrate_section(ini_t *ini, const char *sec)
 {
     static const char *const cs[4] = { "c_up", "c_down", "c_left", "c_right" };
@@ -508,7 +491,6 @@ static int migrate_section(ini_t *ini, const char *sec)
     v = ini_get(ini, sec, "modifier", "");
     if (!is_none(v) && has_c && !ini_has(ini, sec, "cface"))
     {
-        /* "Face buttons = C": the modifier is the C-Face shift, its C sources are the face buttons that become C */
         snprintf(old, sizeof(old), "%s", v);
         ini_set(ini, sec, "cface", old);
         for (k = 0; k < 4; k++)
@@ -519,7 +501,6 @@ static int migrate_section(ini_t *ini, const char *sec)
         }
         n++;
     }
-    /* what is left of the layer, and the preset name, has no meaning any more */
     for (;;)
     {
         int found = 0;

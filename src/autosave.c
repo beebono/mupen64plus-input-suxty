@@ -30,8 +30,7 @@
 
 #include "autosave.h"
 
-/* ---- a small streaming gzip reader (RFC 1951 and 1952), after the structure of the puff.c of zlib
- * It checks and discards: only a 32 KB window and the first 44 bytes are kept, so the 16.8 MB state is never in memory. */
+/* streaming gzip reader after zlib's puff.c; keeps a 32 KB window + 44-byte header, never the 16.8 MB state */
 
 #define WIN_SIZE   32768u
 #define HDR_SIZE   44
@@ -111,7 +110,6 @@ static unsigned bits(inflater *s, int need)
     return val & ((1u << need) - 1);
 }
 
-/* the largest size any supported version can have */
 #define MAX_TOTAL ((uint64_t) AUTOSAVE_SIZE_V12)
 
 static void check_header(inflater *s)
@@ -318,7 +316,7 @@ static int size_ok(uint32_t version, uint64_t total)
 {
     if (version == 0x00010000u)
         return total >= (uint64_t) AUTOSAVE_SIZE_V10_MIN && total <= (uint64_t) AUTOSAVE_SIZE_V10_MAX &&
-               ((total - (uint64_t) AUTOSAVE_SIZE_V10_MIN) % 4) == 0;      /* the core only needs the queue to be a multiple of 4 */
+               ((total - (uint64_t) AUTOSAVE_SIZE_V10_MIN) % 4) == 0;      /* core only needs a multiple of 4 */
     if (version == 0x00010100u)
         return total == (uint64_t) AUTOSAVE_SIZE_V11;
     return total == (uint64_t) AUTOSAVE_SIZE_V12;
@@ -413,8 +411,6 @@ int autosave_validate(const char *path, char *why, size_t why_size)
     return rc;
 }
 
-/* ---- backups ------------------------------------------------------------------------------------------------------ */
-
 void autosave_backup_path(const char *path, int i, char *out, size_t size)
 {
     if (i <= 0)
@@ -456,7 +452,7 @@ int autosave_rotate(const char *path)
     }
     if (slot < 0)
     {
-        slot = oldest;                                  /* all taken: the oldest one goes */
+        slot = oldest;
         autosave_backup_path(path, slot, b, sizeof(b));
         if (unlink(b) != 0)
             return -1;
@@ -465,7 +461,6 @@ int autosave_rotate(const char *path)
     return rename(path, b) == 0 ? 1 : -1;
 }
 
-/* the backup slots that exist, newest first (by modification time); returns how many */
 static int backups_newest_first(const char *path, int order[AUTOSAVE_MAX_BACKUPS])
 {
     char b[PATH_MAX + 16];
@@ -543,7 +538,7 @@ void autosave_reconcile(const char *path, autosave_report *rep)
 
     memset(rep, 0, sizeof(*rep));
     if (lstat(path, &st) == 0 && !S_ISREG(st.st_mode))
-        return;                                              /* a directory or so is not ours to judge */
+        return;                                              /* not a regular file: not ours to judge */
     nb = backups_newest_first(path, order);
     rep->backups = nb;
     rep->was_missing = (lstat(path, &st) != 0);
@@ -560,7 +555,7 @@ void autosave_reconcile(const char *path, autosave_report *rep)
     else
     {
         if (nb == 0)
-            return;                                          /* nothing at all: ABSENT */
+            return;
         snprintf(rep->why, sizeof(rep->why), "missing");
     }
     rep->status = AUTOSAVE_BAD;
@@ -570,7 +565,7 @@ void autosave_reconcile(const char *path, autosave_report *rep)
         autosave_backup_path(path, order[i], b, sizeof(b));
         if (autosave_validate(b, why, sizeof(why)) != 0)
             continue;
-        if (rename(b, path) != 0)                            /* replaces the damaged file atomically */
+        if (rename(b, path) != 0)
             break;
         snprintf(rep->from, sizeof(rep->from), "%s", b);
         rep->status = AUTOSAVE_RESTORED;
@@ -578,8 +573,6 @@ void autosave_reconcile(const char *path, autosave_report *rep)
         return;
     }
 }
-
-/* ---- the launcher's --savestate ------------------------------------------------------------------------------------ */
 
 int autosave_cmdline_arg(const char *buf, size_t len, const char *opt, char *out, size_t out_size)
 {

@@ -1,6 +1,6 @@
 #!/bin/sh
 # usage: tools/build-aarch64.sh [SDL2_LIBDIR]  (a copy of the target's libSDL2-2.0.so.0 to link against, e.g. from the device)
-# The stock Ubuntu cross compiler emits glibc 2.38 symbols; for devices with an older glibc use toolchains/rg35xxsp/build.sh suxty.
+
 set -e
 here=$(cd "$(dirname "$0")/.." && pwd)
 libdir=${1:-${SDL2_LIBDIR:-/usr/lib/aarch64-linux-gnu}}

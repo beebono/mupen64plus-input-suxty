@@ -30,7 +30,7 @@ make install PREFIX=... # to $(PREFIX)/lib/mupen64plus (or PLUGINDIR=)
 `make check` covers the N64 mapping model (D-pad swap, C-Face shift, Soft Tilt), the config layers and old-config migration, menu grid navigation, menu text formatting (status-line wrapping, Test Controller cells, capture message),
 the double-press quit logic, foir discovery and option layering against a fake foir (`tools/fake_foir.c`), and the auto-save validation, backup rotation, start check and inotify watcher.
 
-Cross builds: `tools/build-aarch64.sh [dir with libSDL2-2.0.so.0]`, or pass `CROSS_COMPILE=aarch64-linux-gnu- POSTFIX=-aarch64 SDL_CFLAGS=... SDL_LDLIBS=...`. For glibc-2.35 devices use the workspace's `toolchains/rg35xxsp/build.sh suxty`.
+Cross builds: `tools/build-aarch64.sh [dir with libSDL2-2.0.so.0]`, or pass `CROSS_COMPILE=aarch64-linux-gnu- POSTFIX=-aarch64 SDL_CFLAGS=... SDL_LDLIBS=...`.
 
 ## Debug scripting (headless tests)
 

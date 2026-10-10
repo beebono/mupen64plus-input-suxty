@@ -94,9 +94,6 @@ make -C projects/unix check   # unit tests under ASan / UBSan
 tools/build-aarch64.sh <dir with the device's libSDL2-2.0.so.0>   # aarch64 cross build
 ```
 
-The stock Ubuntu aarch64 cross compiler emits glibc 2.38 symbols. For older devices (such as spruce on the RG35XX SP) use the
-glibc 2.31 route of the n64-plugins workspace, `toolchains/rg35xxsp/build.sh suxty`, whose output runs on both handhelds.
-
 ## License
 
 **GPLv2 or later**, matching the Mupen64Plus core; full text in `LICENSE`.

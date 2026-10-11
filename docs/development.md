@@ -15,6 +15,9 @@
 - **Input.** `GetKeys()` runs on the same thread: `SDL_JoystickUpdate`, then the hotkey filter (`src/inputfilter.c`: the hotkey button or the open menu makes the pad neutral for the game, and a button pressed in that time stays hidden until released),
   then the N64 mapping (`src/padmap.c`, `src/remap.c`). No SDL function is intercepted.
 - **Saves.** `src/states.c` slot file names; `src/filewatch.c` inotify watch (with a stat fallback); `src/autosave.c` validation, backups and the start check; `src/session.c` ties them to the core commands.
+- **Signals.** `src/signals.c` (sigaction with `SA_RESTART`, handlers only set `sig_atomic_t` flags, `sigs_poll` decides what a flag means given the menu / quit / busy state) and `session.c` (acts on it from the swap, inside the menu loop too).
+  Installed at `PluginStartup` and again from the first controller poll or frame, because spruce's core installs its own `SIGUSR1` handler in `main_run` after the plugins start; `PluginShutdown` sets both to `SIG_IGN` so nothing points into the unloaded library.
+  `M64P_AUTOLOAD` is claimed (and unset) in `PluginStartup`, before the core's `getenv`. See [saves.md](saves.md#signals-and-resuming).
 - **FOIR.** `src/foir_if.c` discovery, option layering and page logic; `src/menu_av.c` the FOIR Options pages; `src/foir_suxty.h` is a copy of foir's interface header (ABI 1; another ABI counts as "no foir").
 - **UI.** `src/ui.c`, `src/gl.c`, `src/uinav.c`: a small own-drawn immediate-mode widget set with grid-aware D-pad focus navigation; SDL2 and GLES only, scaling from 320x240 to 1280x720 and beyond. `uinav.c` and `uitext.c` (text formatting) are pure functions with their own tests.
   Two bitmap faces (8x16 for items, 12x24 for hints and status lines) come from `tools/gen_font.py`; panels have four standard widths with a vertical margin of h/24, long pages scroll, and the status line of a scrolling page always has two lines so the panel does not jump.
@@ -32,7 +35,7 @@ make install PREFIX=... # to $(PREFIX)/lib/mupen64plus (or PLUGINDIR=)
 ```
 
 `make check` covers the N64 mapping model (D-pad swap, C-Face shift, Soft Tilt), the config layers and old-config migration, menu grid navigation, menu text formatting (status-line wrapping, Test Controller cells, capture message),
-the double-press quit logic, foir discovery and option layering against a fake foir (`tools/fake_foir.c`), and the auto-save validation, backup rotation, start check and inotify watcher.
+the double-press quit logic, the signal flags and `M64P_AUTOLOAD` handling, foir discovery and option layering against a fake foir (`tools/fake_foir.c`), and the auto-save validation, backup rotation, start check and inotify watcher.
 
 Cross builds: `tools/build-aarch64.sh [dir with libSDL2-2.0.so.0]`, or pass `CROSS_COMPILE=aarch64-linux-gnu- POSTFIX=-aarch64 SDL_CFLAGS=... SDL_LDLIBS=...`.
 

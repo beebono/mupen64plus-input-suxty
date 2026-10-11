@@ -39,6 +39,8 @@ static const char *l_header =
     "# mupen64plus-input-suxty configuration\n"
     "# Edited by hand or by the in-game menu.  Unknown keys are kept.\n"
     "#\n"
+    "# [general] handle_signals  true: SIGUSR2 opens / closes the menu, SIGUSR1 writes the auto-save and quits, and\n"
+    "#         M64P_AUTOLOAD=1 resumes from it (spruce's Game Switcher and menu button); read at start-up\n"
     "# [menu]  menu_combo   buttons that open/close the menu, joined with '+'\n"
     "#                      (up down left right a b x y l r start select l3 r3 guide l2 r2)\n"
     "#         recovery_combo  a second combo that ALWAYS opens the menu, so a bad menu_combo can never lock\n"
@@ -170,6 +172,7 @@ int cfg_init(const char *config_dir)
     }
 
     ini_default(g_cfg.ini, "general", "version", "3");
+    ini_default(g_cfg.ini, "general", "handle_signals", "true");
     ini_default(g_cfg.ini, "menu", "menu_combo", "select+start");
     ini_default(g_cfg.ini, "menu", "recovery_combo", "select+start");
     ini_default(g_cfg.ini, "menu", "dim_percent", "65");
@@ -464,7 +467,7 @@ int cfg_key_overridable(const char *section, const char *key)
         { "menu", "dim_percent" }, { "menu", "show_toasts" }, { "menu", "toast_ms" },
         { "menu", "recovery_combo" },                       /* lock-out protection must not depend on the game */
         { "input", "swap_ab" }, { "input", "nav_deadzone" }, { "input", "block_game_input" },
-        { "general", "version" }
+        { "general", "version" }, { "general", "handle_signals" }
     };
     size_t i;
     for (i = 0; i < sizeof(global_only) / sizeof(global_only[0]); i++)

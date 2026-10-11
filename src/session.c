@@ -44,6 +44,7 @@
 #include "quitarm.h"
 #include "remap.h"
 #include "session.h"
+#include "signals.h"
 #include "states.h"
 #include "toast.h"
 #include "video.h"
@@ -77,18 +78,30 @@ static char         l_startup_toast[96];
 static int          l_startup_toast_kind;
 
 static int  l_quitting;
+static int  l_sig_quit;                     /* the quit was asked for by SIGUSR1: it ends even if the save fails */
+static int  l_load_wait;                    /* swaps left until a load we issued has surely run (the core keeps one job) */
 static int  l_ff_on;
 static int  l_ff_saved_factor = 100;
 
 static quitarm_t l_quit_arm;
+
+/* M64P_AUTOLOAD: resume from the auto-save at the first frame */
+static int          l_autoload_want;
+static int          l_autoload_ok;
+static char         l_autoload_path[PATH_MAX];
+
+void session_request_autoload(int on)
+{
+    l_autoload_want = on;
+}
 
 int session_menu_blocks_this_thread(void)
 {
     return SDL_AtomicGet(&l_menu_open) && SDL_ThreadID() != l_menu_thread;
 }
 
-/* suxty never loads the auto-save (the launcher does, later, with --savestate): check it here and replace a damaged
- * file with the previous one */
+/* the launcher or M64P_AUTOLOAD (first frame, see autoload_run) loads the auto-save, never the menu: check it here and
+ * replace a damaged file with the previous one */
 static void autosave_startup_check(void)
 {
     char path[PATH_MAX], ss[PATH_MAX];
@@ -97,12 +110,20 @@ static void autosave_startup_check(void)
     uint32_t t0 = SDL_GetTicks();
 
     l_startup_toast[0] = 0;
+    l_autoload_ok = 0;
     if (states_slot_path(STATES_AUTO_SLOT, path, sizeof(path)) != 0)
         return;
     autosave_reconcile(path, &rep);
     DebugMessage(M64MSG_VERBOSE, "auto-save check took %u ms", (unsigned) (SDL_GetTicks() - t0));
     ss[0] = 0;
     launcher = autosave_cmdline_savestate(ss, sizeof(ss));
+    l_autoload_ok = rep.status == AUTOSAVE_GOOD || rep.status == AUTOSAVE_RESTORED;
+    snprintf(l_autoload_path, sizeof(l_autoload_path), "%s", path);
+    if (launcher && l_autoload_want)
+    {
+        DebugMessage(M64MSG_INFO, "M64P_AUTOLOAD ignored: the launcher passes --savestate");
+        l_autoload_want = 0;
+    }
     if (launcher)
         DebugMessage(M64MSG_INFO, "auto-save: the launcher loads '%s' (--savestate)%s", ss, strcmp(ss, path) == 0 ? ", the auto-save" : "");
     switch (rep.status)
@@ -152,7 +173,7 @@ static void emu_stop(void)
     if (!l_stop_sent)
     {
         l_stop_sent = 1;
-        DebugMessage(M64MSG_INFO, "stopping emulation");
+        DebugMessage(M64MSG_INFO, "stopping emulation (t=%u ms)", (unsigned) SDL_GetTicks());
         (*CoreDoCommand)(M64CMD_STOP, 0, NULL);
     }
 }
@@ -220,6 +241,9 @@ void session_shutdown(void)
     memset(&l_save, 0, sizeof(l_save));
     l_startup_toast[0] = 0;
     l_quitting = 0;
+    l_sig_quit = 0;
+    l_load_wait = 0;
+    l_autoload_want = 0;
     l_stop_sent = 0;
     l_frames = 0;
     l_prev_held = 0;
@@ -325,7 +349,9 @@ static void save_failed(const char *what)
     if (l_save.rotated && autosave_unrotate(l_save.path))
         DebugMessage(M64MSG_INFO, "the previous auto-save was put back");
     l_save.rotated = 0;
-    if (quit)
+    if (quit && l_sig_quit)
+        emu_stop();                    /* spruce's SIGTERM follows in 2 s anyway; a clean stop flushes the game's own saves */
+    else if (quit)
         l_quitting = 0;                /* stay in the game rather than lose progress: Quit again to retry */
 }
 
@@ -334,6 +360,16 @@ static void save_poll(void)
     struct stat st;
     if (!l_save.active)
         return;
+    if (l_sig_quit && !l_stop_sent && filewatch_started(&l_save.fw))
+    {
+        /* The core's worker has the state (serialised before it was queued) and is compressing it. The core finishes the
+         * write while it shuts down, as it does for spruce's own SIGUSR1: waiting for the file to close would put the whole
+         * shutdown (0.6 s on the RG35XX SP) after the write, too close to spruce's SIGTERM 2 s after the signal. A write
+         * cut short is what the start-up check and the .prev backup are for. */
+        DebugMessage(M64MSG_INFO, "SIGUSR1: the write has started (%u ms after the command); stopping, the core finishes it",
+                     (unsigned) (SDL_GetTicks() - l_save.t0));
+        emu_stop();
+    }
     if (filewatch_poll(&l_save.fw))
     {
         /* closed by the writer. The core's own status message follows within microseconds; the emulator is only
@@ -348,7 +384,8 @@ static void save_poll(void)
         l_save.active = 0;
         filewatch_stop(&l_save.fw);
         toast_show(TOAST_OK, "Saved");
-        DebugMessage(M64MSG_INFO, "state file written: %s (%s)", l_save.path, ino ? "inotify" : "polled");
+        DebugMessage(M64MSG_INFO, "state file written: %s (%s, %u ms after the command, t=%u ms)", l_save.path, ino ? "inotify" : "polled",
+                     (unsigned) (SDL_GetTicks() - l_save.t0), (unsigned) SDL_GetTicks());
         if (quit)
             emu_stop();
         return;
@@ -391,6 +428,7 @@ static int start_load(int slot)
         toast_show(TOAST_ERROR, "Load failed");
         return -1;
     }
+    l_load_wait = 2;
     toast_show(TOAST_INFO, "Loading slot %d...", slot);
     return 0;
 }
@@ -414,6 +452,47 @@ static void begin_quit(void)
         return;
     }
     emu_stop();
+}
+
+/* SIGUSR1: an explicit save-and-quit request, so it does not depend on autosave_on_quit */
+static void signal_save_quit(void)
+{
+    DebugMessage(M64MSG_INFO, "SIGUSR1: writing the auto-save, then quitting (frame %u, t=%u ms)", l_frames, (unsigned) SDL_GetTicks());
+    l_quitting = 1;
+    l_sig_quit = 1;
+    ff_set(0);
+    if (emu_state() == M64EMU_RUNNING && start_save(STATES_AUTO_SLOT, 1) == 0)
+        return;
+    DebugMessage(M64MSG_WARNING, "SIGUSR1: no auto-save could be started; quitting without one");
+    emu_stop();
+}
+
+/* from the first swap, where the emulator is surely running and the core takes the load like any menu load */
+static void autoload_run(void)
+{
+    m64p_error r;
+
+    if (!l_autoload_want)
+        return;
+    l_autoload_want = 0;
+    if (!l_autoload_ok)
+    {
+        DebugMessage(M64MSG_INFO, "M64P_AUTOLOAD: no valid auto-save '%s'; starting fresh", l_autoload_path);
+        return;
+    }
+    r = (*CoreDoCommand)(M64CMD_STATE_LOAD, 0, l_autoload_path);
+    if (r != M64ERR_SUCCESS)
+    {
+        DebugMessage(M64MSG_ERROR, "M64P_AUTOLOAD: M64CMD_STATE_LOAD failed (%d); starting fresh", (int) r);
+        return;
+    }
+    l_load_wait = 2;
+    DebugMessage(M64MSG_INFO, "M64P_AUTOLOAD: resuming from the auto-save '%s'", l_autoload_path);
+    if (l_startup_toast[0] == 0)
+    {
+        snprintf(l_startup_toast, sizeof(l_startup_toast), "Auto-save loaded");
+        l_startup_toast_kind = TOAST_OK;
+    }
 }
 
 typedef enum { HK_MENU, HK_SAVE, HK_LOAD, HK_NEXT, HK_PREV, HK_FF, HK_QUIT, HK_RECOVERY, HK_NUM } hk_id;
@@ -559,7 +638,7 @@ static int run_menu(void)
     int paused_by_us = 0, quit = 0;
     pad_tracker tr;
     uint32_t t_frame, loop_prev, t_capture;
-    int entered_ui = 0;
+    int entered_ui = 0, sig_close = 0;
     dbg_tick_t dt;
 
     video_drawable_size(&w, &h);
@@ -614,6 +693,11 @@ static int run_menu(void)
 
         drain_sdl_events(&quit);
         dbg_tick(&dt);
+        {
+            sigs_state ss = { 1, l_quitting, 0 };
+            if (sigs_poll(&ss) != SIGS_NONE)
+                sig_close = 1;
+        }
         pad_inject(dt.buttons);
         if (dt.cap)
             pad_capture_inject(&dt.capsrc);
@@ -631,7 +715,7 @@ static int run_menu(void)
         {
             result = MENU_QUIT;
         }
-        else if (dt.toggle_menu || (combo_edge(held, loop_prev) && !(consumed = menu_combo_pressed(held))))
+        else if (dt.toggle_menu || sig_close || (combo_edge(held, loop_prev) && !(consumed = menu_combo_pressed(held))))
         {
             result = MENU_RESUME;
         }
@@ -669,7 +753,7 @@ static int run_menu(void)
      * buttons until released; if it is off, keep the frame up until they are */
     {
         uint32_t t0 = SDL_GetTicks();
-        int wait_release = !(g_cfg.block_game_input);
+        int wait_release = !(g_cfg.block_game_input) && !sig_close;
         if (result != MENU_QUIT && !quit)
         {
             for (;;)
@@ -755,6 +839,11 @@ int session_before_swap(void)
     if (SDL_AtomicGet(&l_menu_open))
         return 0;                                    /* re-entrancy guard */
     l_frames++;
+    sigs_arm();
+    if (l_frames == 1)
+        autoload_run();
+    if (l_load_wait > 0)
+        l_load_wait--;
     if (l_frames == 3)
     {
         audio_apply_volume();                        /* the audio plugin is up: this game's volume */
@@ -769,6 +858,18 @@ int session_before_swap(void)
     held = pad_poll();
 
     save_poll();
+
+    {
+        sigs_state ss = { 0, l_quitting, l_save.active || l_load_wait > 0 };
+        sigs_action sa = sigs_poll(&ss);
+        if (sa == SIGS_SAVE_QUIT)
+            signal_save_quit();
+        else if (sa == SIGS_MENU)
+        {
+            DebugMessage(M64MSG_VERBOSE, "SIGUSR2: opening the menu (frame %u)", l_frames);
+            open = 1;
+        }
+    }
 
     if (dt.stat)
         DebugMessage(M64MSG_INFO, "stat: frame %u t=%u ms", l_frames, (unsigned) now);

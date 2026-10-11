@@ -105,6 +105,8 @@ int main(void)
     CHECK(g_cfg.recovery_combo != 0);
     ini_remove(g_cfg.game, "menu", "recovery_combo");
 
+    CHECK(cfg_get_bool("general", "handle_signals", 0) == 1 && !cfg_key_overridable("general", "handle_signals"));
+
     cfg_set("hotkeys", "quick_save", "hotkey+x");
     CHECK(cfg_overridden("hotkeys", "quick_save") && g_cfg.hk_quick_save != 0 &&
           g_cfg.hk_quick_save == cfg_combo_mask("select+x", g_cfg.hotkey_button));

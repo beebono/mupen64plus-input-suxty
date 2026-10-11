@@ -31,6 +31,17 @@ The standalone mupen64plus lives in `/mnt/SDCARD/Emu/N64/mupen64plus/`.
   Alternatively set `InputPlugin` in the `[UI-Console]` section of `$HOME/.config/mupen64plus/mupen64plus.cfg`.
 - suxty's configuration is `<configdir>/suxty/suxty.cfg` beside `mupen64plus.cfg` (spruce: `$HOME/.config/mupen64plus/`).
 - spruce's own N64 hotkeys (the `CoreEvents` `--set`s) are handled by the core, not by the input plugin; they were not exercised in the tests.
+- **Game Switcher and "Emulator menu" button.** spruce's button handler finds the emulator with `pgrep -f "\./mupen64plus"`, so the launcher must start it as `./mupen64plus`
+  from the directory that holds it (`cd /mnt/SDCARD/Emu/N64/mupen64plus && ./mupen64plus ...`); an absolute path does not match and the buttons then do nothing.
+  Then, with `handle_signals` on (the default, see [configuration.md](configuration.md)):
+  - the **Emulator menu** button sends `killall -USR2 mupen64plus`: suxty opens its menu, and a second press closes it. (Without suxty nothing in the stock core or foir handles `SIGUSR2`, and it ends the process.)
+  - the **Game Switcher** sends `killall -USR1 mupen64plus`, and `killall -15 mupen64plus` two seconds later. spruce's core would save to the *current* slot, but its autoload only ever loads slot 0,
+    so a game left in another slot came back stale and a manual slot-0 save was overwritten. suxty replaces the core's handler (at the first frame): `SIGUSR1` closes the menu if it is open, writes
+    `<state name>.auto.st` the way Quit does (`.prev` backup, the core's own writer) and stops the emulator as soon as the core has begun the write; the core finishes it while it shuts down. It does this whether or not
+    Auto-Save is on, and never writes a numbered slot. On the RG35XX SP the exit takes about 1.2 s (measured in [saves.md](saves.md#signals-and-resuming)), inside spruce's two seconds.
+  - **`M64P_AUTOLOAD=1`** (exported by spruce's launcher for a Game Switcher resume) means "resume from the auto-save". suxty removes the variable at start-up so the core does not load slot 0, checks `<state name>.auto.st`
+    like any game start, and loads it on the first frame. With no usable auto-save the game starts fresh (slot 0 is not a fallback). If the launcher also passes `--savestate`, that file wins and the variable is ignored.
+  - A launcher that does not export `M64P_AUTOLOAD` (a normal launch from the game list) starts the game fresh, as before.
 - While a game runs spruce puts the kernel D-pad into analog mode (`nds_pwrkey`), so the stickless pad's D-pad arrives as stick axes. The menu
   follows either, and the N64 mapping is yours to set in Controls. This was not exercised: the device tests ran with the pad in its normal mode.
 - If the marked A button should confirm in the menu (a launcher whose "A" is the other face button), set the file-only option `[input] swap_ab = true`
@@ -38,7 +49,7 @@ The standalone mupen64plus lives in `/mnt/SDCARD/Emu/N64/mupen64plus/`.
 
 ## Resuming a game
 
-suxty never loads a state by itself. To continue where you quit (auto-save on, see [saves.md](saves.md)), have the launcher start the game with the state file:
+Apart from `M64P_AUTOLOAD` (above), suxty never loads a state by itself. To continue where you quit (auto-save on, see [saves.md](saves.md)), have the launcher start the game with the state file:
 
 ```sh
 mupen64plus ... --savestate "<savedir>/<state name>.auto.st" game.z64

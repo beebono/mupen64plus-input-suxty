@@ -48,6 +48,8 @@ typedef struct {
 /* call BEFORE the write is requested */
 int  filewatch_start(filewatch *w, const char *path, int force_polling);
 int  filewatch_poll(filewatch *w);
+/* the writer has begun: the file exists and is not the one that was there before (does not need inotify) */
+int  filewatch_started(filewatch *w);
 void filewatch_stop(filewatch *w);
 int  filewatch_uses_inotify(const filewatch *w);
 

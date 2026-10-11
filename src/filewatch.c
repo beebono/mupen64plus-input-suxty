@@ -153,6 +153,12 @@ int filewatch_poll(filewatch *w)
     return hit;
 }
 
+int filewatch_started(filewatch *w)
+{
+    struct stat st;
+    return changed(w, &st);
+}
+
 void filewatch_stop(filewatch *w)
 {
     if (w->fd >= 0)

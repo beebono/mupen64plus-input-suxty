@@ -64,8 +64,11 @@ Default hotkeys (hold **Select**):
 | Y | Fast-forward |
 | B | Quit (pressed twice within 2 s while "Confirm Quit" is on) |
 
-suxty never loads anything by itself. To continue where you quit with auto-save on, start the game through your front-end with
+suxty loads nothing by itself, except for spruce's `M64P_AUTOLOAD` (below). To continue where you quit with auto-save on, start the game through your front-end with
 `--savestate "<savedir>/<state name>.auto.st"` (see [docs/saves.md](docs/saves.md)).
+
+On **spruce**, suxty also answers the Game Switcher and the "Emulator menu" button: `SIGUSR2` opens / closes the menu, `SIGUSR1` writes the auto-save and quits, and `M64P_AUTOLOAD=1` resumes from it
+(see [docs/launchers.md](docs/launchers.md); `handle_signals = false` in `suxty.cfg` turns this off).
 
 ## Status
 

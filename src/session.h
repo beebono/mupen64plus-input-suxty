@@ -39,4 +39,7 @@ void session_shutdown(void);
 int  session_before_swap(void);
 int  session_menu_blocks_this_thread(void);
 
+/* PluginStartup: M64P_AUTOLOAD was asked for; the first frame loads the auto-save if it is valid (else starts fresh) */
+void session_request_autoload(int on);
+
 #endif /* SESSION_H */

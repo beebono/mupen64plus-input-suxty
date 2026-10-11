@@ -19,7 +19,7 @@ The game wins. The game file uses the same sections and keys as `suxty.cfg`.
 - In the lists a green bar marks a row the game has its own value for (in This Game scope), an olive bar one it has while you look at the global value; the status line says which.
 - **X** on a green row, or **Settings > Reset Game Profile**, deletes the game entry (this game follows the global value again).
 - **Save Game Profile** copies every per-game-capable setting in force (auto-save, Confirm Quit, hotkey combos, fast-forward, Soft Tilt, volume, controller choice and mappings, foir's options) into the game's file. It does not include the hotkey button or the menu combo.
-- Global only: Dim, Notices (`dim_percent`, `show_toasts`, `toast_ms`), `recovery_combo`, `swap_ab`, `nav_deadzone`, `block_game_input`.
+- Global only: Dim, Notices (`dim_percent`, `show_toasts`, `toast_ms`), `recovery_combo`, `swap_ab`, `nav_deadzone`, `block_game_input`, `handle_signals`.
 - Per-game mappings override a pad model as a whole; there is no per-key marker.
 
 ## suxty.cfg
@@ -27,6 +27,7 @@ The game wins. The game file uses the same sections and keys as `suxty.cfg`.
 ```ini
 [general]
 version = 3
+handle_signals = true            # file only: SIGUSR1 / SIGUSR2 and M64P_AUTOLOAD as spruce uses them (launchers.md); false = leave them to the core
 [menu]
 menu_combo = select+start        # buttons joined with '+'; the word "hotkey" stands for hotkey_button
 dim_percent = 65                 # 0-90
@@ -66,6 +67,10 @@ cface_c_up = button:3            # while it is held these controls act as C-Up /
 softtilt = none                  # the Soft Tilt hold button
 a = button:0                     # one key per N64 input: a b z start l r dpad_* c_* stick_*
 ```
+
+`handle_signals` is read once when the plugin starts. With `true` (the default) suxty takes `SIGUSR1` (write the auto-save, then quit), `SIGUSR2` (open / close the menu) and the
+`M64P_AUTOLOAD` environment variable (resume from the auto-save) for itself; see [launchers.md](launchers.md#spruce-rg35xx-sp) and [saves.md](saves.md#signals-and-resuming). With `false` suxty installs no handler and leaves
+the variable alone, so whatever the core does with them applies (stock core: `SIGUSR1` / `SIGUSR2` end the process; spruce's core: `SIGUSR1` saves the current slot and quits, `M64P_AUTOLOAD` loads slot 0).
 
 The menu's FF Speed row offers 150, 200, 300, 400, 500 percent and Unlimited; other values written by hand are shown as they are.
 

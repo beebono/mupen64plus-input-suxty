@@ -445,6 +445,28 @@ static void watch_tests(void)
     CHECK(filewatch_start(&w, a, 0) == 0);
     CHECK(filewatch_uses_inotify(&w));
     CHECK(!wait_hit(&w, 100));
+    CHECK(!filewatch_started(&w));
+
+    pid = writer(a, 400, 1);
+    msleep(150);
+    CHECK(filewatch_started(&w));                              /* created and growing, not yet closed */
+    CHECK(!wait_hit(&w, 20));
+    CHECK(wait_hit(&w, 1000));
+    waitpid(pid, &st, 0);
+    CHECK(filewatch_started(&w));
+    filewatch_stop(&w);
+
+    /* a file that was already there counts as started only once it has changed */
+    CHECK(filewatch_start(&w, a, 0) == 0);
+    CHECK(!filewatch_started(&w));
+    pid = writer(a, 10, 0);
+    waitpid(pid, &st, 0);
+    CHECK(filewatch_started(&w));
+    filewatch_stop(&w);
+    unlink(a);
+
+    CHECK(filewatch_start(&w, a, 0) == 0);
+    CHECK(!wait_hit(&w, 50));
 
     pid = writer(a, 400, 1);
     CHECK(!wait_hit(&w, 250));

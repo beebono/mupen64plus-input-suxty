@@ -123,6 +123,7 @@ SOURCE = \
 	$(SRCDIR)/quitarm.c \
 	$(SRCDIR)/remap.c \
 	$(SRCDIR)/session.c \
+	$(SRCDIR)/signals.c \
 	$(SRCDIR)/states.c \
 	$(SRCDIR)/toast.c \
 	$(SRCDIR)/ui.c \
@@ -141,7 +142,7 @@ targets:
 	@echo "mupen64plus-input-suxty makefile."
 	@echo "  Targets:"
 	@echo "    all            == Build the plugin, mupen64plus-input-suxty.so"
-	@echo "    check          == build and run the unit tests (N64 mapping model, config layers and migration, foir interface, grid navigation, menu text formatting, quit logic, auto-save safety net, inotify watcher)"
+	@echo "    check          == build and run the unit tests (N64 mapping model, config layers and migration, foir interface, grid navigation, menu text formatting, quit logic, signal flags, auto-save safety net, inotify watcher)"
 	@echo "    clean          == remove object files and build products"
 	@echo "    rebuild        == clean and re-build all"
 	@echo "    install        == Install the plugin into PLUGINDIR"
@@ -163,7 +164,7 @@ all: $(TARGET)
 plugin: all
 
 clean:
-	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave test_uinav test_uitext test_quitarm fake_foir.so
+	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave test_uinav test_uitext test_quitarm test_signals fake_foir.so
 
 rebuild: clean all
 
@@ -184,12 +185,13 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
 $(TARGET): $(OBJECTS)
 	$(Q_LD)$(CC) $(CFLAGS) $(PLUGIN_CFLAGS) $(PLUGIN_LDFLAGS) $^ $(LDLIBS) -o $@
 
-check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_uitext test_quitarm
+check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_uitext test_quitarm test_signals
 	./test_padmap
 	./test_cfg
 	./test_uinav
 	./test_uitext
 	./test_quitarm
+	./test_signals
 	./test_foir_if ./fake_foir.so
 	./test_autosave
 
@@ -209,6 +211,9 @@ test_uitext: $(SRCDIR)/../tools/test_uitext.c $(SRCDIR)/uitext.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
 
 test_quitarm: $(SRCDIR)/../tools/test_quitarm.c $(SRCDIR)/quitarm.c
+	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
+
+test_signals: $(SRCDIR)/../tools/test_signals.c $(SRCDIR)/signals.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^
 
 test_autosave: $(SRCDIR)/../tools/test_autosave.c $(SRCDIR)/autosave.c $(SRCDIR)/filewatch.c

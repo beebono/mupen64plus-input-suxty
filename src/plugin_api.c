@@ -38,6 +38,7 @@
 #include "padmap.h"
 #include "remap.h"
 #include "session.h"
+#include "signals.h"
 #include "states.h"
 #include "version.h"
 #include "video.h"
@@ -112,6 +113,19 @@ EXPORT m64p_error CALL PluginStartup(m64p_dynlib_handle CoreLibHandle, void *Con
         return rval;
     }
     DebugMessage(M64MSG_INFO, "version %i.%i.%i: VidExt override installed", VERSION_PRINTF_SPLIT(SUXTY_VERSION));
+
+    /* spruce's core handles SIGUSR1 (save to the current slot) and M64P_AUTOLOAD (load slot 0) from main_run, which runs
+     * after this: take M64P_AUTOLOAD away from it now, and replace its SIGUSR1 handler at the first frame (sigs_arm) */
+    if (cfg_get_bool("general", "handle_signals", 1))
+    {
+        int autoload = sigs_autoload_claim();
+        sigs_install(1);
+        session_request_autoload(autoload);
+        DebugMessage(M64MSG_INFO, "handling SIGUSR1 (save auto-save and quit) and SIGUSR2 (menu)%s",
+                     autoload ? "; M64P_AUTOLOAD: resume from the auto-save" : "");
+    }
+    else
+        DebugMessage(M64MSG_VERBOSE, "handle_signals is off");
     l_started = 1;
     return M64ERR_SUCCESS;
 }
@@ -126,6 +140,7 @@ EXPORT m64p_error CALL PluginShutdown(void)
         l_session_up = 0;
     }
     fif_release();
+    sigs_release();
     video_uninstall();               /* before the core can call a function of a library that is about to be dlclose()d */
     cfg_shutdown();
     DetachCoreLib();
@@ -203,14 +218,18 @@ EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
     DebugMessage(M64MSG_INFO, "controllers initiated");
 }
 
+/* the PIF calls these (and GetKeys) once the emulation runs, possibly before the first frame: arm the signal handlers
+ * here too, so the core's SIGUSR1 handler is out of the picture as early as we can manage */
 EXPORT void CALL ControllerCommand(int Control, unsigned char *Command)
 {
     (void) Control; (void) Command;
+    sigs_arm();
 }
 
 EXPORT void CALL ReadController(int Control, unsigned char *Command)
 {
     (void) Control; (void) Command;
+    sigs_arm();
 }
 
 static int axis80(int v)
@@ -230,7 +249,10 @@ EXPORT void CALL GetKeys(int Control, BUTTONS *Keys)
     if (l_session_up && Control >= 0 && Control < 4)
     {
         if (Control == 0)
+        {
+            sigs_arm();
             pad_refresh();
+        }
         if (remap_player_state(Control, &st))
         {
             uint32_t b = st.buttons;
@@ -265,7 +287,7 @@ EXPORT void CALL RomClosed(void)
     /* the video plugin's RomClosed (VidExt_Quit -> our window teardown) is independent of this one; do not touch GL
      * here.
      * foir may already be gone from here on: never call its interface again */
-    DebugMessage(M64MSG_VERBOSE, "RomClosed");
+    DebugMessage(M64MSG_VERBOSE, "RomClosed (t=%u ms)", (unsigned) SDL_GetTicks());
     fif_release();
     if (l_session_up)
         remap_finish();

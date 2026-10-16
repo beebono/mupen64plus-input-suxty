@@ -34,7 +34,7 @@
 #include "core_interface.h"
 #include "debug.h"
 #include "filewatch.h"
-#include "foir_if.h"
+#include "optif.h"
 #include "gl.h"
 #include "inputfilter.h"
 #include "m64p_types.h"
@@ -227,7 +227,7 @@ static void ff_set(int on)
     l_ff_on = on;
     video_set_unthrottled(on);
     /* render only the frames the speed leaves room for: 1 in 2 up to 200 %, 1 in 3 at 300 %, else foir's maximum 1 in 4 */
-    fif_ff_frameskip(!on ? 0 : g_cfg.ff_speed == 0 || g_cfg.ff_speed > 300 ? 3 : g_cfg.ff_speed > 200 ? 2 : 1);
+    optif_foir_ff_frameskip(!on ? 0 : g_cfg.ff_speed == 0 || g_cfg.ff_speed > 300 ? 3 : g_cfg.ff_speed > 200 ? 2 : 1);
     DebugMessage(M64MSG_INFO, "fast-forward %s (frame %u, t=%u ms)", on ? "on" : "off", l_frames, (unsigned) SDL_GetTicks());
 }
 
@@ -674,7 +674,7 @@ static int run_menu(void)
     toast_set_menu_open(1);                          /* toasts made while the menu is up go to its status line */
     ugl_background_upload();
     menu_set_quit_saves(g_cfg.autosave_on_quit);
-    fif_discover();                                  /* foir loaded after we looked? (no-op once found) */
+    optif_discover_all();                            /* loaded after we looked? (no-op once found) */
     menu_open(cur_slot());
     inputfilter_force(1);
     DebugMessage(M64MSG_VERBOSE, "menu opened at frame %u (%dx%d, frame capture %u ms)", l_frames, w, h, (unsigned) t_capture);

@@ -22,10 +22,10 @@
 #include <string.h>
 
 #include "cfg.h"
-#include "foir_if.h"
 #include "font.h"
 #include "menu.h"
 #include "menu_int.h"
+#include "optif.h"
 #include "pad.h"
 #include "ui.h"
 
@@ -40,27 +40,25 @@ static void set_msg(const char *text, int kind)
 
 static int scope_game(void) { return g_cfg.scope == CFG_SCOPE_GAME; }
 
-int av_foir_available(void) { return fif_get() != NULL; }
-
 static int         l_nrow;
 static const char *l_focus_help;
 static char        l_focus_note[96];
 
-static void option_row(unsigned i)
+static void option_row(optif_t *op, unsigned i)
 {
-    const struct foir_suxty_option *o = fif_option(i);
-    int v = fif_shown(i), nv = v, changed = 0, over = fif_overridden(i), focused;
+    const struct optif_option *o = optif_option(op, i);
+    int v = optif_shown(op, i), nv = v, changed = 0, over = optif_overridden(op, i), focused;
     char text[48];
 
     if (o == NULL)
         return;
     switch (o->type)
     {
-        case FOIR_OPT_BOOL:
+        case OPT_BOOL:
             if (ui_toggle(o->label, &nv))
                 changed = 1;
             break;
-        case FOIR_OPT_ENUM:
+        case OPT_ENUM:
             if (ui_choice(o->label, &nv, o->enum_labels, o->max + 1))
                 changed = 1;
             break;
@@ -83,41 +81,44 @@ static void option_row(unsigned i)
     ui_mark_last(menu_mark_kind(over));
     if (changed)
     {
-        int r = fif_set(i, nv);
+        int r = optif_set(op, i, nv);
         if (r < 0)
-            set_msg("foir refused the change", -1);
-        else if (r == FOIR_SUXTY_NEXT_LAUNCH)
+        {
+            snprintf(text, sizeof(text), "%s refused the change", op->name);
+            set_msg(text, -1);
+        }
+        else if (r == OPT_NEXT_LAUNCH)
             set_msg("Takes effect the next time the game starts", 1);
         else
             set_msg(scope_game() ? "Applied now; saved for this game" : "Applied now; saved for all games", 1);
     }
     else if (ui_x_last() && scope_game() && over)
     {
-        fif_reset(i);
+        optif_reset(op, i);
         set_msg("Reset to the global value", 1);
     }
     if (focused)
     {
         l_focus_help = o->help;
         l_focus_note[0] = 0;
-        if (!(o->flags & FOIR_OPTF_LIVE))
-            snprintf(l_focus_note, sizeof(l_focus_note), fif_pending(i) ? "Changed: applies the next time the game starts"
+        if (!(o->flags & OPTF_LIVE))
+            snprintf(l_focus_note, sizeof(l_focus_note), optif_pending(op, i) ? "Changed: applies the next time the game starts"
                                                                         : "Read when the game starts (not live)");
         else if (over && !scope_game())
             snprintf(l_focus_note, sizeof(l_focus_note), "This game uses its own value");
     }
 }
 
-static void page_foir(int back)
+static void page_options(optif_t *op, const char *name, const char *default_btn, menu_page confirm, int back)
 {
     char title[48];
-    unsigned i, n = fif_count();
+    unsigned i, n = optif_count(op);
     int any_next = 0, rows = 2;
 
     for (i = 0; i < n; i++)
         rows++;
     for (i = 0; i < n; i++)
-        if (!(fif_option(i)->flags & FOIR_OPTF_LIVE) && !any_next)
+        if (!(optif_option(op, i)->flags & OPTF_LIVE) && !any_next)
         {
             any_next = 1;
             rows++;                             /* the "applies at the next launch" heading */
@@ -127,20 +128,20 @@ static void page_foir(int back)
     l_focus_help = NULL;
     l_focus_note[0] = 0;
     ui_next_panel_width(UI_W_FULL);
-    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "FOIR Options"), rows, 1);
+    ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), name), rows, 1);
     for (i = 0; i < n; i++)
-        if (fif_option(i)->flags & FOIR_OPTF_LIVE)
-            option_row(i);
+        if (optif_option(op, i)->flags & OPTF_LIVE)
+            option_row(op, i);
     for (i = 0; i < n; i++)
-        if (!(fif_option(i)->flags & FOIR_OPTF_LIVE))
+        if (!(optif_option(op, i)->flags & OPTF_LIVE))
         {
             if (!any_next)
                 ui_label(FONT_CH_DOWN " Applies at the Next Launch " FONT_CH_DOWN);
             any_next = 1;
-            option_row(i);
+            option_row(op, i);
         }
-    if (ui_button("Save as FOIR Default"))
-        menu_push(PAGE_CONFIRM_FOIR_DEFAULT);
+    if (ui_button(default_btn))
+        menu_push(confirm);
     l_nrow++;
     if (ui_button("Back"))
         menu_pop();
@@ -161,7 +162,7 @@ static void page_foir(int back)
         menu_pop();
 }
 
-static void page_confirm_default(int back)
+static void page_confirm_default(optif_t *op, const char *section, int back)
 {
     ui_panel_begin_ex("Confirm", 6, UI_W_DIALOG);
     ui_grid(2);
@@ -169,8 +170,12 @@ static void page_confirm_default(int back)
     ui_label("mupen64plus.cfg?");
     if (menu_yes_no())
     {
-        if (fif_save_defaults() == 0)
-            set_msg("Written to [Video-Foir] in mupen64plus.cfg", 1);
+        if (optif_save_defaults(op) == 0)
+        {
+            char t[64];
+            snprintf(t, sizeof(t), "Written to [%s] in mupen64plus.cfg", section);
+            set_msg(t, 1);
+        }
         else
             set_msg("Couldn't write mupen64plus.cfg", -1);
         menu_pop();
@@ -180,21 +185,23 @@ static void page_confirm_default(int back)
         menu_pop();
 }
 
-int av_owns_page(menu_page p) { return p >= PAGE_FOIR; }
+int av_owns_page(menu_page p) { return p >= PAGE_VIDEO; }
 
 void av_frame(menu_page page, int back)
 {
     switch (page)
     {
-        case PAGE_FOIR:                 page_foir(back); break;
-        case PAGE_CONFIRM_FOIR_DEFAULT: page_confirm_default(back); break;
+        case PAGE_VIDEO:                page_options(&g_foir, "Video Options", "Save as Video Default", PAGE_CONFIRM_VIDEO_DEFAULT, back); break;
+        case PAGE_CONFIRM_VIDEO_DEFAULT: page_confirm_default(&g_foir, "Video-Foir", back); break;
+        case PAGE_AUDIO:                page_options(&g_altru, "Audio Options", "Save as Audio Default", PAGE_CONFIRM_AUDIO_DEFAULT, back); break;
+        case PAGE_CONFIRM_AUDIO_DEFAULT: page_confirm_default(&g_altru, "Audio-Altru", back); break;
         default: break;
     }
 }
 
 void av_leave_page(menu_page p)
 {
-    if (p >= PAGE_FOIR)
+    if (p >= PAGE_VIDEO)
     {
         cfg_save();
         set_msg("", 0);

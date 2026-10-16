@@ -60,4 +60,4 @@ mupen64plus ... --savestate "<savedir>/<state name>.auto.st" game.z64
 The config directory is the front-end's `--configdir` (default `~/.config/mupen64plus`); states follow the core's `SaveStatePath`, by default
 `${XDG_DATA_HOME}/mupen64plus/save`. When testing on ROCKNIX, `HOME=/storage`, so a private `--configdir` alone still saves states into ROCKNIX's own
 directory: set `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `HOME` (or `Core[SaveStatePath]`) to a private directory too.
-suxty never writes `mupen64plus.cfg`, except for the explicit "Save as FOIR Default" action (see [saves.md](saves.md)).
+suxty never writes `mupen64plus.cfg`, except for the explicit "Save as Video Default" and "Save as Audio Default" action (see [saves.md](saves.md)).

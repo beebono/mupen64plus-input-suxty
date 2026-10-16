@@ -108,7 +108,7 @@ SOURCE = \
 	$(SRCDIR)/core_interface.c \
 	$(SRCDIR)/debug.c \
 	$(SRCDIR)/filewatch.c \
-	$(SRCDIR)/foir_if.c \
+	$(SRCDIR)/optif.c \
 	$(SRCDIR)/font_data.c \
 	$(SRCDIR)/gl.c \
 	$(SRCDIR)/inifile.c \
@@ -164,7 +164,7 @@ all: $(TARGET)
 plugin: all
 
 clean:
-	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_foir_if test_autosave test_uinav test_uitext test_quitarm test_signals fake_foir.so
+	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_optif test_autosave test_uinav test_uitext test_quitarm test_signals fake_foir.so fake_altru.so
 
 rebuild: clean all
 
@@ -185,14 +185,14 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
 $(TARGET): $(OBJECTS)
 	$(Q_LD)$(CC) $(CFLAGS) $(PLUGIN_CFLAGS) $(PLUGIN_LDFLAGS) $^ $(LDLIBS) -o $@
 
-check: test_padmap test_cfg test_foir_if fake_foir.so test_autosave test_uinav test_uitext test_quitarm test_signals
+check: test_padmap test_cfg test_optif fake_foir.so fake_altru.so test_autosave test_uinav test_uitext test_quitarm test_signals
 	./test_padmap
 	./test_cfg
 	./test_uinav
 	./test_uitext
 	./test_quitarm
 	./test_signals
-	./test_foir_if ./fake_foir.so
+	./test_optif ./fake_foir.so ./fake_altru.so
 	./test_autosave
 
 test_padmap: $(SRCDIR)/../tools/test_padmap.c $(SRCDIR)/padmap.c $(SRCDIR)/inifile.c
@@ -201,7 +201,7 @@ test_padmap: $(SRCDIR)/../tools/test_padmap.c $(SRCDIR)/padmap.c $(SRCDIR)/inifi
 test_cfg: $(SRCDIR)/../tools/test_cfg.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/padmap.c $(SRCDIR)/osal_files_unix.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm
 
-test_foir_if: $(SRCDIR)/../tools/test_foir_if.c $(SRCDIR)/foir_if.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/padmap.c $(SRCDIR)/osal_files_unix.c
+test_optif: $(SRCDIR)/../tools/test_optif.c $(SRCDIR)/optif.c $(SRCDIR)/cfg.c $(SRCDIR)/inifile.c $(SRCDIR)/pad.c $(SRCDIR)/padmap.c $(SRCDIR)/osal_files_unix.c
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) $(filter -I%,$(CFLAGS)) $(SDL_CFLAGS) -fsanitize=address,undefined -o $@ $^ $(SDL_LDLIBS) -lm -ldl
 
 test_uinav: $(SRCDIR)/../tools/test_uinav.c $(SRCDIR)/uinav.c
@@ -220,6 +220,9 @@ test_autosave: $(SRCDIR)/../tools/test_autosave.c $(SRCDIR)/autosave.c $(SRCDIR)
 	$(CC) -std=gnu11 -D_GNU_SOURCE -O1 $(WARNFLAGS) -I$(SRCDIR) -fsanitize=address,undefined -o $@ $^ -lz
 
 fake_foir.so: $(SRCDIR)/../tools/fake_foir.c $(SRCDIR)/foir_suxty.h
+	$(CC) -std=gnu11 -O1 -Wall -Wextra -fPIC -shared -I$(SRCDIR) -o $@ $<
+
+fake_altru.so: $(SRCDIR)/../tools/fake_altru.c $(SRCDIR)/altru_suxty.h
 	$(CC) -std=gnu11 -O1 -Wall -Wextra -fPIC -shared -I$(SRCDIR) -o $@ $<
 
 .PHONY: all plugin clean rebuild install uninstall targets check

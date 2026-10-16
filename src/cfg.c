@@ -63,6 +63,8 @@ static const char *l_header =
     "# [states] autosave_on_quit  Quit first saves '<state name>.auto.st' (never a numbered slot); off by default.\n"
     "#         Resume from it with your front-end, e.g. mupen64plus --savestate <savedir>/<state name>.auto.st\n"
     "# [audio] volume       0-100, applied when the game starts (absent: whatever the audio plugin starts with)\n"
+    "#         with the altru audio plugin [audio] also takes its [Audio-Altru] option names (FF_MODE, RESAMPLE, ...),\n"
+    "#         applied through altru's interface when the game starts\n"
     "# [foir]  Video-Foir options of the foir video plugin, by their [Video-Foir] names (Widescreen, Filter, ...);\n"
     "#         applied through foir's interface when the game starts; mupen64plus.cfg is never written by them\n"
     "# [players]  p1..p4 = auto | none | <pad name>: which controller drives which N64 player\n"

@@ -1,7 +1,7 @@
 # Configuration
 
 Everything can be changed from the menu; the files below are what it writes. suxty never writes the core's `mupen64plus.cfg` (the front-end owns it),
-apart from foir's "Save as FOIR Default".
+apart from the explicit "Save as Video Default" / "Save as Audio Default" actions.
 
 ```
 mupen64plus.cfg          # the core's and the plugins' settings: owned by the front-end
@@ -15,10 +15,10 @@ suxty/
 Every setting has a global value (`suxty.cfg`) and may have a game value in `games/<rom-md5>.cfg` (the ROM's MD5, so a `.z64`, `.v64` and `.n64` dump share a file).
 The game wins. The game file uses the same sections and keys as `suxty.cfg`.
 
-- The menu's **Apply To** (All Games / This Game) chooses where the Controls, FOIR Options and Settings pages write.
+- The menu's **Apply To** (All Games / This Game) chooses where the Controls, Video Options, Audio Options and Settings pages write.
 - In the lists a green bar marks a row the game has its own value for (in This Game scope), an olive bar one it has while you look at the global value; the status line says which.
 - **X** on a green row, or **Settings > Reset Game Profile**, deletes the game entry (this game follows the global value again).
-- **Save Game Profile** copies every per-game-capable setting in force (auto-save, Confirm Quit, hotkey combos, fast-forward, Soft Tilt, volume, controller choice and mappings, foir's options) into the game's file. It does not include the hotkey button or the menu combo.
+- **Save Game Profile** copies every per-game-capable setting in force (auto-save, Confirm Quit, hotkey combos, fast-forward, Soft Tilt, volume, controller choice and mappings, foir's and altru's options) into the game's file. It does not include the hotkey button or the menu combo.
 - Global only: Dim, Notices (`dim_percent`, `show_toasts`, `toast_ms`), `recovery_combo`, `swap_ab`, `nav_deadzone`, `block_game_input`, `handle_signals`.
 - Per-game mappings override a pad model as a whole; there is no per-key marker.
 
@@ -54,6 +54,7 @@ confirm_quit = true              # the quit combo must be pressed twice within 2
 autosave_on_quit = false         # opt-in: Quit saves <state name>.auto.st first
 [audio]
 volume = 70                      # optional; absent = whatever the audio plugin starts with
+FF_MODE = Muted                  # optional, with altru: its options by their [Audio-Altru] names (Volume is `volume`)
 [foir]                           # optional; foir's options by their [Video-Foir] names
 Widescreen = true
 FrameSkip = Auto

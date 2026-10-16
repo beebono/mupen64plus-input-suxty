@@ -27,7 +27,7 @@
 
 #include "audio.h"
 #include "cfg.h"
-#include "foir_if.h"
+#include "optif.h"
 #include "menu.h"
 #include "menu_int.h"
 #include "pad.h"
@@ -394,7 +394,8 @@ static void save_game_profile(void)
     char t[64];
     cfg_pin_profile();
     remap_pin_game();
-    fif_pin_game();
+    optif_pin_game(&g_foir);
+    optif_pin_game(&g_altru);
     cfg_save();
     remap_flush();
     snprintf(t, sizeof(t), "%d settings saved for this game", cfg_game_setting_count());
@@ -410,7 +411,7 @@ static void page_settings(void)
     int confirm = cfg_get_scoped_bool("hotkeys", "confirm_quit", 1);
     int ff_mode = strcasecmp(cfg_get_scoped("hotkeys", "fast_forward_mode", "hold"), "toggle") == 0;
     int game = g_cfg.scope == CFG_SCOPE_GAME;
-    int foir = av_foir_available(), vol = audio_volume_now() >= 0;
+    int foir = g_foir.iface != NULL, altru = g_altru.iface != NULL, vol = !altru && audio_volume_now() >= 0;
     int nset = cfg_game_setting_count(), have_game = cfg_game_available();
     int rows, id = 0, dim_id, apply_id;
     char title[32];
@@ -420,15 +421,21 @@ static void page_settings(void)
     if (l_set_msg[0] && ui_focus_get() != l_set_msg_focus)
         set_settings_msg("", 0);
     /* same rows in both scopes, so the cursor doesn't move when "Apply To" changes */
-    rows = 1 + foir + 1 + vol + 4 + 2 + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
+    rows = 1 + foir + altru + 1 + vol + 4 + 2 + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
     ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Settings"), rows, 1);
     if (ui_item("Controls", ">") == 1)
         push(PAGE_CONTROLS);
     id++;
     if (foir)
     {
-        if (ui_item("FOIR Options", ">") == 1)
-            push(PAGE_FOIR);
+        if (ui_item("Video Options", ">") == 1)
+            push(PAGE_VIDEO);
+        id++;
+    }
+    if (altru)
+    {
+        if (ui_item("Audio Options", ">") == 1)
+            push(PAGE_AUDIO);
         id++;
     }
     if (ui_item("Hotkeys", ">") == 1)
@@ -488,7 +495,7 @@ static void page_settings(void)
     else if (game && (ui_focus_get() == dim_id || ui_focus_get() == dim_id + 1))
         ui_status_bar("Global Only", 0);
     else if (ui_focus_get() == apply_id)
-        ui_status_bar("Where Controls/FOIR/Settings save", 0);
+        ui_status_bar("Where Controls and Options save", 0);
     else if (ui_focus_get() == apply_id + 1)
     {
         char t[64];
@@ -516,7 +523,8 @@ static void page_confirm_profile_reset(void)
         cfg_reset_all_game();
         cfg_save();
         remap_flush();
-        fif_reapply_all();
+        optif_reapply_all(&g_foir);
+        optif_reapply_all(&g_altru);
         audio_apply_volume();
         pop();
         set_settings_msg("This game uses the global settings", 1);      /* after the pop: the message belongs to the row we land on */
@@ -608,7 +616,7 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
         case PAGE_CONFIRM_CTL_RESET:
             ctl_frame(page, pressed, held, back);
             break;
-        case PAGE_FOIR: case PAGE_CONFIRM_FOIR_DEFAULT:
+        case PAGE_VIDEO: case PAGE_CONFIRM_VIDEO_DEFAULT: case PAGE_AUDIO: case PAGE_CONFIRM_AUDIO_DEFAULT:
             av_frame(page, back);
             break;
         case PAGE_CONFIRM_QUIT:

@@ -22,6 +22,7 @@
 #include "cfg.h"
 #include "core_interface.h"
 #include "main.h"
+#include "optif.h"
 #include "m64p_types.h"
 
 int audio_volume_now(void)
@@ -36,7 +37,13 @@ static int l_vol_initial = -2;       /* -2: not queried yet */
 
 void audio_apply_volume(void)
 {
-    int v = cfg_get_int("audio", "volume", -1);
+    int v;
+    if (g_altru.iface != NULL)
+    {
+        DebugMessage(M64MSG_VERBOSE, "altru reports a volume of %d%%", audio_volume_now());
+        return;                      /* altru: Volume is one of its options */
+    }
+    v = cfg_get_int("audio", "volume", -1);
     if (l_vol_initial == -2)
         l_vol_initial = audio_volume_now();
     if (v < 0)

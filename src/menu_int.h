@@ -42,8 +42,10 @@ typedef enum {
     PAGE_COMBO_CAPTURE,
     PAGE_COMBO_CONFIRM,
     PAGE_CONFIRM_CTL_RESET,
-    PAGE_FOIR,               /* menu_av.c from here on */
-    PAGE_CONFIRM_FOIR_DEFAULT
+    PAGE_VIDEO,              /* menu_av.c from here on */
+    PAGE_CONFIRM_VIDEO_DEFAULT,
+    PAGE_AUDIO,
+    PAGE_CONFIRM_AUDIO_DEFAULT
 } menu_page;
 
 const char *menu_scoped_title(char *buf, size_t size, const char *base);
@@ -57,7 +59,6 @@ void      menu_push(menu_page p);
 void      menu_pop(void);
 
 int  av_owns_page(menu_page p);
-int  av_foir_available(void);
 void av_frame(menu_page p, int back);
 void av_reset(void);
 void av_leave_page(menu_page p);

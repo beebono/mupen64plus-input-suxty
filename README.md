@@ -23,13 +23,15 @@ patched builds that CFWs ship, and needs only SDL2 (the one the front-end alread
   stick deadzone and range, a Test Controller page, and per-player pad choice (players 1-4).
 - **Hotkeys** (hold Select by default): quick-save, quick-load, next / previous slot, fast-forward (hold or toggle, with a speed
   setting) and quit. All of them are reassignable. While the hotkey button is held the game sees a neutral controller.
-- **Volume** slider for the core's audio volume (hidden if the core cannot report it).
+- **Volume** slider for the core's audio volume (hidden if the core cannot report it; with altru it is a row of Audio Options).
 - **Opt-in auto-save on quit** to a separate auto slot, with rotated backups and a start-up check that restores the last good
   one if a write was cut short.
 - **Per-game profiles.** Every setting has a global value and may have its own value for one game ("Apply To: All Games /
   This Game", "Save Game Profile").
-- **FOIR Options**, when the video plugin is `mupen64plus-rdp-foir`: widescreen, smoothing, frame skip and the
+- **Video Options**, when the video plugin is `mupen64plus-rdp-foir`: widescreen, smoothing, frame skip and the
   other foir options, live where foir allows it. With any other video plugin this page is not there.
+- **Audio Options**, when the audio plugin is `mupen64plus-audio-altru`: volume, fast-forward audio, sync, resampler,
+  buffer size and the other altru options, live where altru allows it. With any other audio plugin this page is not there.
 
 ## Using it
 
@@ -52,8 +54,8 @@ The plugin can live anywhere. Setup for ROCKNIX and spruce is in [docs/launchers
 | X | Clear a mapping or hotkey; in "This Game" scope, reset a row to the global value |
 | L / R | Scroll the save-slot carousel |
 
-The main menu is a grid: **Save | Load**, the slot to use, **Resume | Reset**, **Settings | Quit**. **Settings** has Controls, FOIR Options
-(with foir), Hotkeys, Volume, Auto-Save, Confirm Quit, Fast-Forward, FF Speed, Dim, Notices, Apply To, and Save Game Profile.
+The main menu is a grid: **Save | Load**, the slot to use, **Resume | Reset**, **Settings | Quit**. **Settings** has Controls, Video Options
+(with foir), Audio Options (with altru), Hotkeys, Volume (without altru), Auto-Save, Confirm Quit, Fast-Forward, FF Speed, Dim, Notices, Apply To, and Save Game Profile.
 
 Default hotkeys (hold **Select**):
 
@@ -86,7 +88,7 @@ More in [docs/saves.md](docs/saves.md) and [docs/development.md](docs/developmen
 
 - [docs/launchers.md](docs/launchers.md): launch lines and setup for stock ui-console, ROCKNIX and spruce, where files are written.
 - [docs/configuration.md](docs/configuration.md): `suxty.cfg` and per-game files, layering, keys and defaults, hotkey and lock-out rules, upgrading.
-- [docs/saves.md](docs/saves.md): how saving, loading and auto-save work, the auto-save safety net, FOIR Options storage.
+- [docs/saves.md](docs/saves.md): how saving, loading and auto-save work, the auto-save safety net, Video and Audio Options storage.
 - [docs/development.md](docs/development.md): architecture, tests, debug scripting and screenshot harness, wording rules.
 
 ## Building

@@ -1,4 +1,4 @@
-/* stand-in for foir's suxty interface (src/foir_suxty.h) for test_foir_if. GPLv2+, like the rest of the project.
+/* stand-in for foir's suxty interface (src/foir_suxty.h) for test_optif. GPLv2+, like the rest of the project.
  * gcc -shared -fPIC -I../src -o fake_foir.so fake_foir.c */
 #include <string.h>
 

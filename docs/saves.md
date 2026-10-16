@@ -66,21 +66,27 @@ Details worth knowing:
   RG35XX SP 1.18 to 1.26 s over five runs (conservative governor and spruce's 1512 MHz Performance mode alike: the 1.1 s of compression is not clock-bound, and the core's shutdown takes the rest), against 1.22 s for spruce's own
   `SIGUSR1` handler on the same device; desktop x86_64 0.13 to 0.25 s. With the earlier wait-for-"Saved" variant the SP needed 1.75 to 1.81 s.
 
-## FOIR Options
+## Video Options
 
-Settings > **FOIR Options** appears only when `mupen64plus-rdp-foir` is the video plugin. suxty finds it through a one-way interface foir exports (`FoirSuxtyGetInterface`, ABI 1; see foir's README, "suxty interface"),
+Settings > **Video Options** appears only when `mupen64plus-rdp-foir` is the video plugin. suxty finds it through a one-way interface foir exports (`FoirSuxtyGetInterface`, ABI 1; see foir's README, "suxty interface"),
 so the options (label, kind, value, whether a change applies at once) come from foir's own table. Currently:
 
 - **Applies at once:** Widescreen, Smoothing, Interlace Hack, Frame Skip.
 - **Applies at the Next Launch** (under a heading): VSync, Worker Threads, NEON Kernels, Specialised Kernels, Fast Combiner, Relaxed Precision.
 - Storage follows **Apply To**: All Games writes `[foir]` in `suxty.cfg`, This Game in the game's file, with the `[Video-Foir]` key names (`Widescreen = true`, `FrameSkip = Auto`, `Threads = None`).
   At game start, before foir opens the ROM, suxty hands every stored value to foir, so next-launch options are applied then.
-- **Save as FOIR Default** (asks first) writes the values shown into `[Video-Foir]` of `mupen64plus.cfg` through foir. It is the only way suxty causes that file to be written; foir then uses the values without suxty too.
+- **Save as Video Default** (asks first) writes the values shown into `[Video-Foir]` of `mupen64plus.cfg` through foir. It is the only way suxty causes that file to be written; foir then uses the values without suxty too.
 - foir is detected by one scan of the loaded objects at game start and again when the menu opens; no polling.
+
+## Audio Options
+
+Settings > **Audio Options** appears only when `mupen64plus-audio-altru` is the audio plugin, through its own one-way interface (`AltruSuxtyGetInterface`, ABI 1; see altru's `docs/options.md`, "suxty interface"). It is built and stored exactly like Video Options:
+live options on top, the rest under "Applies at the Next Launch", values in `[audio]` of `suxty.cfg` or the game's file by the `[Audio-Altru]` key names (`FF_MODE = Muted`, `BUFFER_MS = 60`), handed to altru before it opens the ROM, X resets a row to the global value in This Game scope.
+Altru's Volume is the existing `[audio] volume` key (it takes steps of 5; other values written by hand are rounded), and it replaces the Settings > Volume row. **Save as Audio Default** writes `[Audio-Altru]` of `mupen64plus.cfg`. Fast-forward needs nothing from suxty: altru detects the core's speed factor and limiter itself.
 
 ## Volume
 
-Settings > Volume (0-100, `M64CORE_AUDIO_VOLUME`) applies at once and is stored per scope (`[audio] volume`); X goes back to the audio plugin's own default. The row is hidden if the core or audio plugin cannot report a volume.
+Without altru, Settings > Volume (0-100, `M64CORE_AUDIO_VOLUME`) applies at once and is stored per scope (`[audio] volume`); X goes back to the audio plugin's own default. The row is hidden if the core or audio plugin cannot report a volume.
 Fast-forward changes audio speed with the core's speed factor; `fast_forward_speed = 0` (limiter off) can make `audio-sdl` skip. With `audio-sdl`'s `AUDIO_SYNC`
 on (spruce's default) the audio plugin paces the emulator: "Unlimited" then runs at 1x, and so do 400 % and 500 % (`audio-sdl`
 rejects speed factors above 300).

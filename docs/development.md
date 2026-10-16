@@ -10,7 +10,7 @@
   loop inside that swap call (own event pumping, presenting at about 60 Hz), then resumes. No second thread, no locking (see `src/session.h`). Toasts and the fast-forward badge are drawn over the finished frame just before the swap. While fast-forward is on, a frame that arrives
   less than one display refresh after the last swap is not presented (the swap is consumed), so a driver that ignores swap
   interval 0 (mali fbdev) cannot hold the game at the refresh rate; when it ends every frame is swapped again.
-  With foir, fast-forward also pins foir's FrameSkip (`fif_ff_frameskip`: 1 frame in 2 up to 200 %, 1 in 3 at 300 %, else 1 in 4)
+  With foir, fast-forward also pins foir's FrameSkip (`optif_foir_ff_frameskip`: 1 frame in 2 up to 200 %, 1 in 3 at 300 %, else 1 in 4)
   and restores the configured value when it ends.
 - **Input.** `GetKeys()` runs on the same thread: `SDL_JoystickUpdate`, then the hotkey filter (`src/inputfilter.c`: the hotkey button or the open menu makes the pad neutral for the game, and a button pressed in that time stays hidden until released),
   then the N64 mapping (`src/padmap.c`, `src/remap.c`). No SDL function is intercepted.
@@ -18,7 +18,8 @@
 - **Signals.** `src/signals.c` (sigaction with `SA_RESTART`, handlers only set `sig_atomic_t` flags, `sigs_poll` decides what a flag means given the menu / quit / busy state) and `session.c` (acts on it from the swap, inside the menu loop too).
   Installed at `PluginStartup` and again from the first controller poll or frame, because spruce's core installs its own `SIGUSR1` handler in `main_run` after the plugins start; `PluginShutdown` sets both to `SIG_IGN` so nothing points into the unloaded library.
   `M64P_AUTOLOAD` is claimed (and unset) in `PluginStartup`, before the core's `getenv`. See [saves.md](saves.md#signals-and-resuming).
-- **FOIR.** `src/foir_if.c` discovery, option layering and page logic; `src/menu_av.c` the FOIR Options pages; `src/foir_suxty.h` is a copy of foir's interface header (ABI 1; another ABI counts as "no foir").
+- **Video / audio plugin options.** `src/optif.c` discovery, option layering and storage, shared by foir (`g_foir`, `[foir]`) and altru (`g_altru`, `[audio]`); `src/menu_av.c` the Video Options and Audio Options pages, both generated from the plugin's descriptor table;
+  `src/foir_suxty.h` and `src/altru_suxty.h` are copies of the plugins' interface headers (ABI 1; another ABI counts as "not there"). Their layouts must match `src/optif.h`, which `optif.c` asserts at compile time.
 - **UI.** `src/ui.c`, `src/gl.c`, `src/uinav.c`: a small own-drawn immediate-mode widget set with grid-aware D-pad focus navigation; SDL2 and GLES only, scaling from 320x240 to 1280x720 and beyond. `uinav.c` and `uitext.c` (text formatting) are pure functions with their own tests.
   Two bitmap faces (8x16 for items, 12x24 for hints and status lines) come from `tools/gen_font.py`; panels have four standard widths with a vertical margin of h/24, long pages scroll, and the status line of a scrolling page always has two lines so the panel does not jump.
   A toast made while the menu is open appears in the status line (at least 2.5 s); outside the menu toasts float over the game.
@@ -35,7 +36,7 @@ make install PREFIX=... # to $(PREFIX)/lib/mupen64plus (or PLUGINDIR=)
 ```
 
 `make check` covers the N64 mapping model (D-pad swap, C-Face shift, Soft Tilt), the config layers and old-config migration, menu grid navigation, menu text formatting (status-line wrapping, Test Controller cells, capture message),
-the double-press quit logic, the signal flags and `M64P_AUTOLOAD` handling, foir discovery and option layering against a fake foir (`tools/fake_foir.c`), and the auto-save validation, backup rotation, start check and inotify watcher.
+the double-press quit logic, the signal flags and `M64P_AUTOLOAD` handling, foir and altru discovery and option layering against fakes (`tools/fake_foir.c`, `tools/fake_altru.c`), and the auto-save validation, backup rotation, start check and inotify watcher.
 
 Cross builds: `tools/build-aarch64.sh [dir with libSDL2-2.0.so.0]`, or pass `CROSS_COMPILE=aarch64-linux-gnu- POSTFIX=-aarch64 SDL_CFLAGS=... SDL_LDLIBS=...`.
 

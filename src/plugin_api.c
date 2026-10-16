@@ -29,7 +29,7 @@
 #include "cfg.h"
 #include "core_interface.h"
 #include "debug.h"
-#include "foir_if.h"
+#include "optif.h"
 #include "m64p_plugin.h"
 #include "m64p_types.h"
 #include "main.h"
@@ -139,7 +139,7 @@ EXPORT m64p_error CALL PluginShutdown(void)
         session_shutdown();
         l_session_up = 0;
     }
-    fif_release();
+    optif_release_all();
     sigs_release();
     video_uninstall();               /* before the core can call a function of a library that is about to be dlclose()d */
     cfg_shutdown();
@@ -202,9 +202,10 @@ EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
         DebugMessage(M64MSG_INFO, "menu combo: %s", combo);
     }
 
-    /* hand foir this game's stored options before it opens the ROM */
-    if (fif_discover())
-        fif_apply_config();
+    /* hand the plugins this game's stored options before they open the ROM */
+    optif_discover_all();
+    optif_apply_config(&g_foir);
+    optif_apply_config(&g_altru);
 
     remap_prepare_launch();
     for (i = 0; i < 4; i++)
@@ -286,9 +287,9 @@ EXPORT void CALL RomClosed(void)
 {
     /* the video plugin's RomClosed (VidExt_Quit -> our window teardown) is independent of this one; do not touch GL
      * here.
-     * foir may already be gone from here on: never call its interface again */
+     * foir and altru may already be gone from here on: never call their interfaces again */
     DebugMessage(M64MSG_VERBOSE, "RomClosed (t=%u ms)", (unsigned) SDL_GetTicks());
-    fif_release();
+    optif_release_all();
     if (l_session_up)
         remap_finish();
 }

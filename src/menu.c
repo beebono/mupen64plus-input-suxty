@@ -426,16 +426,16 @@ static void page_settings(void)
     if (ui_item("Controls", ">") == 1)
         push(PAGE_CONTROLS);
     id++;
-    if (foir)
-    {
-        if (ui_item("Video Options", ">") == 1)
-            push(PAGE_VIDEO);
-        id++;
-    }
     if (altru)
     {
         if (ui_item("Audio Options", ">") == 1)
             push(PAGE_AUDIO);
+        id++;
+    }
+    if (foir)
+    {
+        if (ui_item("Video Options", ">") == 1)
+            push(PAGE_VIDEO);
         id++;
     }
     if (ui_item("Hotkeys", ">") == 1)

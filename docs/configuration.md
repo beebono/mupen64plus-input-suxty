@@ -15,7 +15,7 @@ suxty/
 Every setting has a global value (`suxty.cfg`) and may have a game value in `games/<rom-md5>.cfg` (the ROM's MD5, so a `.z64`, `.v64` and `.n64` dump share a file).
 The game wins. The game file uses the same sections and keys as `suxty.cfg`.
 
-- The menu's **Apply To** (All Games / This Game) chooses where the Controls, Video Options, Audio Options and Settings pages write.
+- The menu's **Apply To** (All Games / This Game) chooses where the Controls, Audio Options, Video Options and Settings pages write.
 - In the lists a green bar marks a row the game has its own value for (in This Game scope), an olive bar one it has while you look at the global value; the status line says which.
 - **X** on a green row, or **Settings > Reset Game Profile**, deletes the game entry (this game follows the global value again).
 - **Save Game Profile** copies every per-game-capable setting in force (auto-save, Confirm Quit, hotkey combos, fast-forward, Soft Tilt, volume, controller choice and mappings, foir's and altru's options) into the game's file. It does not include the hotkey button or the menu combo.

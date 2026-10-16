@@ -65,7 +65,7 @@ static void option_row(optif_t *op, unsigned i)
         default:
         {
             int dir;
-            snprintf(text, sizeof(text), "%d", v);
+            snprintf(text, sizeof(text), "%d%s", v, (o->flags & OPTF_PERCENT) ? "%" : (o->flags & OPTF_MS) ? " ms" : "");
             dir = ui_step(o->label, text);
             if (dir != 0)
             {

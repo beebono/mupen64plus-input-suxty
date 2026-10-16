@@ -31,6 +31,8 @@ enum altru_suxty_type { ALTRU_OPT_BOOL = 0, ALTRU_OPT_INT = 1, ALTRU_OPT_ENUM = 
 
 /* flags */
 #define ALTRU_OPTF_LIVE 1u    /* a change takes effect at once; without it the option is read when the ROM is opened */
+#define ALTRU_OPTF_PERCENT 2u /* INT: the value is a percentage (a menu shows "70%") */
+#define ALTRU_OPTF_MS 4u      /* INT: the value is in milliseconds (a menu shows "60 ms") */
 
 /* set() results (>= 0) and errors (< 0) */
 #define ALTRU_SUXTY_APPLIED      0   /* in effect now */

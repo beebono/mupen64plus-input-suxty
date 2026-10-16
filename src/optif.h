@@ -32,6 +32,8 @@
 
 enum { OPT_BOOL = 0, OPT_INT = 1, OPT_ENUM = 2 };
 #define OPTF_LIVE 1u
+#define OPTF_PERCENT 2u   /* INT shown as "70%" */
+#define OPTF_MS 4u        /* INT shown as "60 ms" */
 #define OPT_APPLIED     0
 #define OPT_NEXT_LAUNCH 1
 

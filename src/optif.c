@@ -52,6 +52,22 @@ optif_t g_foir  = { .symbol = "FoirSuxtyGetInterface", .abi = FOIR_SUXTY_ABI, .s
 optif_t g_altru = { .symbol = "AltruSuxtyGetInterface", .abi = ALTRU_SUXTY_ABI, .section = "audio", .name = "altru",
                     .alias_from = "VOLUME_DEFAULT", .alias_to = "volume", .strict_step = 1 };
 
+/* Static bundle: foir and altru are linked into the executable, so their entry points are plain (weak) symbols; the dlopen scan below finds
+   them only as separate .so files. A weak reference stays NULL when the plugin is not linked in (or not resolvable: .so build). */
+#pragma weak FoirSuxtyGetInterface
+#pragma weak AltruSuxtyGetInterface
+
+static const struct optif_iface *(*linked_get(const optif_t *o))(void)
+{
+    const struct optif_iface *(*get)(void) = NULL;
+
+    if (o == &g_foir && FoirSuxtyGetInterface != NULL)
+        *(void **) (&get) = (void *) FoirSuxtyGetInterface;
+    else if (o == &g_altru && AltruSuxtyGetInterface != NULL)
+        *(void **) (&get) = (void *) AltruSuxtyGetInterface;
+    return get;
+}
+
 typedef struct {
     const optif_t *o;
     const struct optif_iface *found;
@@ -96,7 +112,19 @@ int optif_discover(optif_t *o)
         return 1;
     memset(&s, 0, sizeof(s));
     s.o = o;
-    dl_iterate_phdr(scan_cb, &s);
+    {
+        const struct optif_iface *(*get)(void) = linked_get(o);
+        const struct optif_iface *li = get != NULL ? get() : NULL;
+        if (li != NULL && li->abi == o->abi && li->size >= sizeof(*li) && li->option_count <= OPTIF_MAX)
+        {
+            s.found = li;
+            snprintf(s.path, sizeof(s.path), "linked in");
+        }
+        else if (li != NULL)
+            s.wrong_abi = (int) li->abi;
+    }
+    if (s.found == NULL)
+        dl_iterate_phdr(scan_cb, &s);
     if (s.found == NULL)
     {
         if (s.wrong_abi)

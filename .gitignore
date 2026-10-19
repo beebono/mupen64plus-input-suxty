@@ -15,3 +15,4 @@
 *.swp
 *~
 /projects/unix/test_*
+/projects/unix/*.a

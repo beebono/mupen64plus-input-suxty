@@ -24,6 +24,11 @@ ifneq ("$(UNAME)","Linux")
 endif
 
 SRCDIR = ../../src
+# BUNDLE=1: static archive for the single-binary bundle (symbols prefixed suxty_)
+BUNDLEDIR ?= ../../../mupen64plus-pow2/bundle
+ifeq ($(BUNDLE), 1)
+  POSTFIX := $(POSTFIX)-bundle
+endif
 OBJDIR = _objp$(POSTFIX)
 
 OPTFLAGS ?= -O3
@@ -134,9 +139,14 @@ SOURCE = \
 OBJECTS := $(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(filter %.c, $(SOURCE)))
 $(shell $(MKDIR) $(OBJDIR))
 
-TARGET = mupen64plus-input-suxty$(POSTFIX).so
-PLUGIN_CFLAGS  = -fPIC -fvisibility=hidden
-PLUGIN_LDFLAGS = -shared -Wl,-Bsymbolic -Wl,--exclude-libs,ALL
+ifeq ($(BUNDLE), 1)
+  TARGET = libsuxty.a
+  PLUGIN_CFLAGS  = -fPIC -fvisibility=hidden -include $(BUNDLEDIR)/rename-suxty.h
+else
+  TARGET = mupen64plus-input-suxty$(POSTFIX).so
+  PLUGIN_CFLAGS  = -fPIC -fvisibility=hidden
+  PLUGIN_LDFLAGS = -shared -Wl,-Bsymbolic -Wl,--exclude-libs,ALL
+endif
 
 targets:
 	@echo "mupen64plus-input-suxty makefile."
@@ -153,6 +163,7 @@ targets:
 	@echo "    SDL_CFLAGS / SDL_LDLIBS == SDL2 flags when pkg-config can't supply them (cross builds)"
 	@echo "    OPTFLAGS=flags == compiler optimization (default: -O3)"
 	@echo "    WARNFLAGS=flag == compiler warning levels (default: -Wall -Wextra)"
+	@echo "    BUNDLE=1       == build libsuxty.a for the static single-binary bundle (renamed symbols)"
 	@echo "    POSTFIX=name   == String added to the name of the the build (default: '')"
 	@echo "    PREFIX=path    == install/uninstall prefix (default: /usr/local)"
 	@echo "    PLUGINDIR=path == where the plugin is installed (default: PREFIX/lib/mupen64plus)"
@@ -164,7 +175,7 @@ all: $(TARGET)
 plugin: all
 
 clean:
-	$(RM) -r $(OBJDIR) $(TARGET) test_padmap test_cfg test_optif test_autosave test_uinav test_uitext test_quitarm test_signals fake_foir.so fake_altru.so
+	$(RM) -r $(OBJDIR) $(TARGET) libsuxty.a test_padmap test_cfg test_optif test_autosave test_uinav test_uitext test_quitarm test_signals fake_foir.so fake_altru.so
 
 rebuild: clean all
 
@@ -182,8 +193,15 @@ $(OBJDIR)/%.o: $(SRCDIR)/%.c
 	@$(MKDIR) $(dir $@)
 	$(COMPILE.c) $(PLUGIN_CFLAGS) -o $@ $<
 
+ifeq ($(BUNDLE), 1)
+$(TARGET): $(OBJECTS)
+	@echo '    AR  '$@
+	@$(RM) $@
+	@$(CROSS_COMPILE)$(if $(AR_LTO),$(AR_LTO),ar) rcs $@ $^
+else
 $(TARGET): $(OBJECTS)
 	$(Q_LD)$(CC) $(CFLAGS) $(PLUGIN_CFLAGS) $(PLUGIN_LDFLAGS) $^ $(LDLIBS) -o $@
+endif
 
 check: test_padmap test_cfg test_optif fake_foir.so fake_altru.so test_autosave test_uinav test_uitext test_quitarm test_signals
 	./test_padmap

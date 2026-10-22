@@ -267,6 +267,14 @@ int pad_init(void)
     return 0;
 }
 
+/* evdev FF_RUMBLE, which is how most handhelds expose their motor; a pad without one ignores it */
+void pad_rumble(int pad, int on)
+{
+    if (pad < 0 || pad >= l_npads || l_pads[pad].joy == NULL)
+        return;
+    SDL_JoystickRumble(l_pads[pad].joy, on ? 0xFFFF : 0, on ? 0xFFFF : 0, on ? 0xFFFF : 0);
+}
+
 void pad_shutdown(void)
 {
     if (!l_inited)

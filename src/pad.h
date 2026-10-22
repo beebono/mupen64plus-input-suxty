@@ -48,6 +48,7 @@ void pad_shutdown(void);
 /* all controllers merged; folds in the left stick as D-pad and injected test buttons */
 uint32_t pad_poll(void);
 void     pad_refresh(void);
+void     pad_rumble(int pad, int on);              /* evdev FF_RUMBLE; no-op without a motor */
 
 typedef struct {
     enum { PAD_BIND_NONE = 0, PAD_BIND_BUTTON, PAD_BIND_AXIS, PAD_BIND_HAT } type;

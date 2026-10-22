@@ -23,6 +23,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include <SDL.h>
 
@@ -165,6 +166,21 @@ EXPORT m64p_error CALL PluginGetVersion(m64p_plugin_type *PluginType, int *Plugi
 }
 
 /* the ROM is open; the video and audio plugins are attached but have not opened it */
+/* the core re-reads Controls[].Plugin on every poll and swaps the pak itself (unplugged for a moment, so the game
+ * notices) */
+static CONTROL *l_controls;
+
+void pak_sync(void)
+{
+    const char *v = cfg_get("input", "controller_pak", "memory");
+    int plugin = strcasecmp(v, "rumble") == 0 ? PLUGIN_RUMBLE_PAK : strcasecmp(v, "none") == 0 ? PLUGIN_NONE : PLUGIN_MEMPAK;
+    int i;
+    if (l_controls == NULL)
+        return;
+    for (i = 0; i < 4; i++)
+        l_controls[i].Plugin = plugin;
+}
+
 EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
 {
     int i;
@@ -212,19 +228,43 @@ EXPORT void CALL InitiateControllers(CONTROL_INFO ControlInfo)
     {
         ControlInfo.Controls[i].Present = (i == 0 || remap_player_pad(i) >= 0) ? 1 : 0;
         ControlInfo.Controls[i].RawData = 0;
-        ControlInfo.Controls[i].Plugin = PLUGIN_MEMPAK;       /* the core's own Controller Pak (no rumble) */
         ControlInfo.Controls[i].Type = CONT_TYPE_STANDARD;
     }
+    l_controls = ControlInfo.Controls;
+    pak_sync();
     l_session_up = 1;
     DebugMessage(M64MSG_INFO, "controllers initiated");
 }
 
 /* the PIF calls these (and GetKeys) once the emulation runs, possibly before the first frame: arm the signal handlers
  * here too, so the core's SIGUSR1 handler is out of the picture as early as we can manage */
+static int l_rumble[4], l_rumble_held;
+
+static void rumble_apply(int player)
+{
+    pad_rumble(remap_player_pad(player), l_rumble[player] && !l_rumble_held);
+}
+
+void rumble_hold(int held)
+{
+    int i;
+    l_rumble_held = held;
+    for (i = 0; i < 4; i++)
+        if (l_rumble[i])
+            rumble_apply(i);
+}
+
+/* the core's Rumble Pak forwards its motor writes here as a pak write to 0xC000 */
 EXPORT void CALL ControllerCommand(int Control, unsigned char *Command)
 {
-    (void) Control; (void) Command;
     sigs_arm();
+    if (Control < 0 || Control >= 4 || Command == NULL || Command[2] != 0x03)
+        return;
+    if (((Command[3] << 8) | (Command[4] & 0xE0)) == 0xC000 && l_rumble[Control] != (Command[5] != 0))
+    {
+        l_rumble[Control] = Command[5] != 0;
+        rumble_apply(Control);
+    }
 }
 
 EXPORT void CALL ReadController(int Control, unsigned char *Command)
@@ -290,6 +330,8 @@ EXPORT void CALL RomClosed(void)
      * foir and altru may already be gone from here on: never call their interfaces again */
     DebugMessage(M64MSG_VERBOSE, "RomClosed (t=%u ms)", (unsigned) SDL_GetTicks());
     optif_release_all();
+    rumble_hold(1);
+    memset(l_rumble, 0, sizeof(l_rumble));
     if (l_session_up)
         remap_finish();
 }

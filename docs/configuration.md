@@ -39,6 +39,7 @@ swap_ab = false                  # file only: swap confirm / back in the menu
 soft_tilt_scale = 0.5            # stick strength while the Soft Tilt button is held (0.0-1.0); no menu row
 nav_deadzone = 50                # % of stick travel that counts as a D-pad press in the menu
 block_game_input = true          # hide hotkey / menu buttons from the game (recommended)
+controller_pak = memory          # none | memory | rumble; swapped when the game resumes; rumble drives the pad's motor
 [hotkeys]
 hotkey_button = select           # while held, the game sees a neutral controller
 quick_save = hotkey+r            # empty = disabled

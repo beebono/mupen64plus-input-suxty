@@ -35,6 +35,7 @@
 #include "states.h"
 #include "toast.h"
 #include "ui.h"
+#include "main.h"
 
 #define MAX_DEPTH 10
 static menu_page l_stack[MAX_DEPTH];
@@ -313,6 +314,8 @@ static const char *const l_ff_speed_names[] = { "150%", "200%", "300%", "400%", 
 static const int         l_ff_speed_vals[]  = { 150, 200, 300, 400, 500, 0 };
 static const choice_set  l_ff_speed = { l_ff_speed_names, l_ff_speed_vals, 6 };
 static const char *const l_ff_mode_names[] = { "Hold", "Toggle" };
+static const char *const l_pak_names[] = { "None", "Memory", "Rumble" };
+static const char *const l_pak_keys[]  = { "none", "memory", "rumble" };
 
 /* a value not in the table (hand-edited) is shown as an extra last option until another is picked */
 static int settings_choice(const char *label, const choice_set *set, const char *suffix, const char *section, const char *key, int def)
@@ -410,6 +413,8 @@ static void page_settings(void)
     int autosave = cfg_get_scoped_bool("states", "autosave_on_quit", 0);
     int confirm = cfg_get_scoped_bool("hotkeys", "confirm_quit", 1);
     int ff_mode = strcasecmp(cfg_get_scoped("hotkeys", "fast_forward_mode", "hold"), "toggle") == 0;
+    const char *pak_key = cfg_get_scoped("input", "controller_pak", "memory");
+    int pak = strcasecmp(pak_key, "none") == 0 ? 0 : strcasecmp(pak_key, "rumble") == 0 ? 2 : 1;
     int game = g_cfg.scope == CFG_SCOPE_GAME;
     int foir = g_foir.iface != NULL, altru = g_altru.iface != NULL, vol = !altru && audio_volume_now() >= 0;
     int nset = cfg_game_setting_count(), have_game = cfg_game_available();
@@ -421,7 +426,7 @@ static void page_settings(void)
     if (l_set_msg[0] && ui_focus_get() != l_set_msg_focus)
         set_settings_msg("", 0);
     /* same rows in both scopes, so the cursor doesn't move when "Apply To" changes */
-    rows = 1 + foir + altru + 1 + vol + 4 + 2 + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
+    rows = 1 + foir + altru + 1 + vol + 5 + 2 + 1 + 1 + (nset > 0 ? 1 : 0) + 1;
     ui_panel_begin_scroll(menu_scoped_title(title, sizeof(title), "Settings"), rows, 1);
     if (ui_item("Controls", ">") == 1)
         push(PAGE_CONTROLS);
@@ -460,7 +465,10 @@ static void page_settings(void)
     settings_row_end("hotkeys", "fast_forward_mode");
     settings_choice("FF Speed", &l_ff_speed, "%", "hotkeys", "fast_forward_speed", 300);
     settings_row_end("hotkeys", "fast_forward_speed");
-    id += 4;
+    if (ui_choice("Controller Pak", &pak, l_pak_names, 3))
+        cfg_set("input", "controller_pak", l_pak_keys[pak]);
+    settings_row_end("input", "controller_pak");
+    id += 5;
     dim_id = id;
     if (game)
     {
@@ -638,4 +646,4 @@ menu_result menu_frame(int w, int h, uint32_t pressed, uint32_t held)
 }
 
 int menu_combo_pressed(uint32_t held)  { return ctl_combo_pressed(held); }
-void menu_closing(void)                { ctl_menu_closing(); remap_flush(); cfg_save(); }
+void menu_closing(void)                { ctl_menu_closing(); remap_flush(); cfg_save(); pak_sync(); }

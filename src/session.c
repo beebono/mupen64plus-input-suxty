@@ -675,6 +675,7 @@ static int run_menu(void)
     ugl_background_upload();
     menu_set_quit_saves(g_cfg.autosave_on_quit);
     optif_discover_all();                            /* loaded after we looked? (no-op once found) */
+    rumble_hold(1);
     menu_open(cur_slot());
     inputfilter_force(1);
     DebugMessage(M64MSG_VERBOSE, "menu opened at frame %u (%dx%d, frame capture %u ms)", l_frames, w, h, (unsigned) t_capture);
@@ -748,6 +749,7 @@ static int run_menu(void)
     pad_inject(0);
     toast_set_menu_open(0);                          /* what menu_closing() has to say floats over the game again */
     menu_closing();
+    rumble_hold(0);
 
     /* show one clean (undimmed) frame so the game doesn't resume over a menu; the input filter hides the closing
      * buttons until released; if it is off, keep the frame up until they are */

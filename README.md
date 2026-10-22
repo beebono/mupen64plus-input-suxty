@@ -55,7 +55,7 @@ The plugin can live anywhere. Setup for ROCKNIX and spruce is in [docs/launchers
 | L / R | Scroll the save-slot carousel |
 
 The main menu is a grid: **Save | Load**, the slot to use, **Resume | Reset**, **Settings | Quit**. **Settings** has Controls, Video Options
-(with foir), Audio Options (with altru), Hotkeys, Volume (without altru), Auto-Save, Confirm Quit, Fast-Forward, FF Speed, Dim, Notices, Apply To, and Save Game Profile.
+(with foir), Audio Options (with altru), Hotkeys, Volume (without altru), Auto-Save, Confirm Quit, Fast-Forward, FF Speed, Controller Pak, Dim, Notices, Apply To, and Save Game Profile.
 
 Default hotkeys (hold **Select**):
 

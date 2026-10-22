@@ -33,4 +33,7 @@ extern void DebugCallback(void *Context, int level, const char *message);
 
 extern int  g_Verbose;
 
+void pak_sync(void);      /* applies [input] controller_pak to the core's controllers */
+void rumble_hold(int held);  /* stops the motors while the menu is up; resumes what the game asked for */
+
 #endif /* __MAIN_H__ */

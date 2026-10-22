@@ -54,6 +54,8 @@ static const char *l_header =
     "#                      the deadzone / range, to analog and D-pad-as-stick output alike\n"
     "#         nav_deadzone left-stick travel (%) that counts as a D-pad press (10-90)\n"
     "#         block_game_input  hide hotkey / menu buttons from the game (recommended)\n"
+    "#         controller_pak  none | memory | rumble: the pak in every controller; changed in the menu, it is\n"
+    "#                      swapped when the game resumes; rumble drives the pad's motor\n"
     "# [hotkeys]  Combos are buttons joined with '+'; the word 'hotkey' stands for hotkey_button.\n"
     "#         hotkey_button  while it is held the game sees a neutral controller (default select)\n"
     "#         quick_save quick_load next_slot prev_slot fast_forward quit   (empty = disabled)\n"
@@ -184,6 +186,7 @@ int cfg_init(const char *config_dir)
     ini_default(g_cfg.ini, "input", "nav_deadzone", "50");
     ini_default(g_cfg.ini, "input", "soft_tilt_scale", "0.5");
     ini_default(g_cfg.ini, "input", "block_game_input", "true");
+    ini_default(g_cfg.ini, "input", "controller_pak", "memory");
     ini_default(g_cfg.ini, "hotkeys", "hotkey_button", "select");
     ini_default(g_cfg.ini, "hotkeys", "quick_save", "hotkey+r");
     ini_default(g_cfg.ini, "hotkeys", "quick_load", "hotkey+l");
@@ -439,7 +442,7 @@ static const char *const l_profile_keys[][2] = {
     { "hotkeys", "quick_save" }, { "hotkeys", "quick_load" }, { "hotkeys", "next_slot" }, { "hotkeys", "prev_slot" },
     { "hotkeys", "fast_forward" }, { "hotkeys", "quit" }, { "hotkeys", "fast_forward_mode" },
     { "hotkeys", "fast_forward_speed" }, { "hotkeys", "confirm_quit" },
-    { "input", "soft_tilt_scale" }, { "audio", "volume" }
+    { "input", "soft_tilt_scale" }, { "input", "controller_pak" }, { "audio", "volume" }
 };
 
 int cfg_pin_profile(void)
